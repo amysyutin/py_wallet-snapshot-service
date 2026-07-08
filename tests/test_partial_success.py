@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from app.config import get_settings
 from app.enums import AssetType, ChainStatus, JobStatus, ScopeType, TriggerType
 from app.models.snapshots import SnapshotRun
 from app.services.evm_collector import AssetBalance, ChainCollectionResult
@@ -11,8 +12,10 @@ from tests.conftest import seed_user_wallet
 class FakeEvmCollector:
     def __init__(self, statuses):
         self.statuses = statuses
+        self.calls = []
 
     def collect_chain(self, address, chain):
+        self.calls.append(chain)
         status = self.statuses.get(chain, ChainStatus.SUCCESS.value)
         if status == ChainStatus.SUCCESS.value:
             return ChainCollectionResult(
@@ -78,7 +81,10 @@ def test_all_failed_chains_fail_job(db_session):
     status = SnapshotProcessor(
         db_session,
         evm_collector=FakeEvmCollector(
-            {chain: ChainStatus.FAILED.value for chain in ["mainnet", "base", "arbitrum", "bnb", "linea"]}
+            {
+                chain: ChainStatus.FAILED.value
+                for chain in ["mainnet", "base", "arbitrum", "bnb", "linea"]
+            }
         ),
     ).process(job)
 
@@ -90,3 +96,41 @@ def test_all_successful_chains_succeed_job(db_session):
     status = SnapshotProcessor(db_session, evm_collector=FakeEvmCollector({})).process(job)
 
     assert status == JobStatus.SUCCESS.value
+
+
+def test_enabled_chains_limits_evm_collection(db_session, monkeypatch):
+    monkeypatch.setenv("SNAPSHOT_ENABLED_CHAINS", "mainnet")
+    get_settings.cache_clear()
+    job = make_job(db_session)
+    collector = FakeEvmCollector({})
+
+    try:
+        status = SnapshotProcessor(db_session, evm_collector=collector).process(job)
+    finally:
+        get_settings.cache_clear()
+
+    assert status == JobStatus.SUCCESS.value
+    assert collector.calls == ["mainnet"]
+
+
+def test_retry_failed_chains_collects_only_failed_parent_chains(db_session):
+    parent_job = make_job(db_session)
+    parent_collector = FakeEvmCollector({"mainnet": ChainStatus.FAILED.value})
+    SnapshotProcessor(db_session, evm_collector=parent_collector).process(parent_job)
+
+    retry_job = SnapshotRun(
+        user_id=1,
+        trigger_type=TriggerType.RETRY.value,
+        scope_type=ScopeType.FAILED_CHAINS.value,
+        status=JobStatus.RUNNING.value,
+        parent_run_id=parent_job.id,
+        created_at=datetime.now(UTC),
+    )
+    db_session.add(retry_job)
+    db_session.commit()
+    retry_collector = FakeEvmCollector({})
+
+    status = SnapshotProcessor(db_session, evm_collector=retry_collector).process(retry_job)
+
+    assert status == JobStatus.SUCCESS.value
+    assert retry_collector.calls == ["mainnet"]

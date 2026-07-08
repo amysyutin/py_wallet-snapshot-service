@@ -1,33 +1,56 @@
 # py_wallet-snapshot-service
 
-MVP-friendly snapshot microservice for `py_wallet`. It creates snapshot jobs, loads active wallets from the shared PostgreSQL database, collects EVM native balances through RPC, includes manual balances, writes portfolio snapshot rows back to PostgreSQL, and exposes operational metrics for Prometheus.
+FastAPI microservice that creates and processes wallet snapshot jobs for `py_wallet`.
+It reads active users and wallets from the shared PostgreSQL database, collects EVM
+native balances through RPC, includes manual wallet balances, writes normalized
+snapshot rows back to PostgreSQL, and exposes operational metrics for Prometheus.
 
-Prometheus is used only for operational telemetry. Portfolio balances are stored in PostgreSQL and should be read by `py_wallet-api`.
+Prometheus is used only for telemetry. Portfolio data is business data and must be
+read from PostgreSQL by `py_wallet`.
 
 ```text
-Snapshot Service -> EVM RPC / price providers -> PostgreSQL
-py_wallet-api    -> PostgreSQL -> Frontend
-Prometheus       -> /metrics from services -> Grafana/alerts
+py_wallet backend -> snapshot-service internal API
+snapshot-service  -> PostgreSQL + EVM RPC + price providers
+Prometheus        -> /metrics
 ```
 
-## What It Does
+## Responsibilities
 
-- Exposes FastAPI endpoints for health, metrics, debug jobs, and internal job creation.
-- Creates scheduled/manual/retry snapshot jobs.
-- Runs local background scheduler and worker loops in one process.
-- Claims jobs with PostgreSQL row-level locking using `FOR UPDATE SKIP LOCKED`.
-- Reads API-owned tables: `users`, `wallet_groups`, `wallets`, `manual_balances`, `assets`.
+- Exposes health, metrics, debug, and internal snapshot job endpoints.
+- Creates manual, scheduled, and retry jobs.
+- Runs the FastAPI app, worker loop, and scheduler loop in one process.
+- Claims pending jobs with PostgreSQL row locking via `FOR UPDATE SKIP LOCKED`.
+- Reads `py_wallet`-owned tables: `users`, `wallet_groups`, `wallets`, `assets`, `manual_balances`.
 - Owns snapshot tables: `snapshot_runs`, `wallet_snapshots`, `chain_snapshots`, `snapshot_balance_snapshots`.
-- Collects EVM native balances with JSON-RPC `eth_getBalance`.
-- Processes manual wallets without RPC.
-- Uses CoinGecko with static local fallback prices for common symbols.
-- Represents partial success at wallet and job level.
+- Collects EVM native balances for `mainnet`, `base`, `arbitrum`, `bnb`, and `linea`.
+- Processes manual wallets without RPC calls.
+- Uses CoinGecko for prices with local fallback prices for common symbols.
+- Supports partial success at job, wallet, and chain level.
 
-## What It Does Not Do Yet
+## Project Layout
 
-No Redis, Celery, RabbitMQ, Kafka, Docker, Kubernetes, private keys, signing, transactions, exchange integrations, Binance, custom user networks, or custom token contracts in this first version.
+```text
+app/
+  api/            FastAPI routers for health, metrics, debug, and internal jobs
+  models/         SQLAlchemy models for external py_wallet tables and snapshot tables
+  schemas/        Pydantic request/response schemas
+  services/       job creation, wallet loading, collectors, prices, snapshot processing
+  scheduler/      scheduled job producer loop
+  worker/         pending job claim and processing loop
+alembic/          snapshot-service migrations
+docs/             local runbooks and service interaction notes
+tests/            API, worker, scheduler, manual wallet, and partial success tests
+```
 
-## Local Setup
+## Local Python Setup
+
+Requirements:
+
+- Python 3.12+
+- PostgreSQL database shared with `py_wallet`
+- RPC URLs for full EVM processing
+
+Install dependencies:
 
 ```bash
 python3.12 -m venv .venv
@@ -36,46 +59,114 @@ pip install -e ".[dev]"
 cp .env.example .env
 ```
 
-Set `DATABASE_URL` in `.env`, then run snapshot-owned migrations:
+Set `DATABASE_URL` in `.env`, then run snapshot-service migrations:
 
 ```bash
 alembic upgrade head
 ```
 
-Start the local service:
+Start the service:
 
 ```bash
-uvicorn app.main:app --reload --port 8001
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
 ```
 
-For local API-only testing, you can set:
+For API-only smoke testing without background processing:
 
 ```env
 SNAPSHOT_WORKER_ENABLED=false
 SNAPSHOT_SCHEDULER_ENABLED=false
 ```
 
-## Environment
+## Docker Setup
 
-Important variables:
+Build the local image:
 
+```bash
+docker build -t py_wallet_snapshot_service:dev .
+```
+
+Run with Docker Compose:
+
+```bash
+docker compose up -d
+```
+
+The compose file runs the image as `py-wallet-snapshot-service` on the external
+Docker network `py_wallet_default` and publishes port `8001`.
+
+When running inside Docker, `localhost` points to the snapshot-service container.
+Use the PostgreSQL service name from the shared Docker network in `DATABASE_URL`,
+for example:
+
+```env
+DATABASE_URL=postgresql+psycopg://wallet:wallet@postgres:5432/wallet
+```
+
+Run migrations from the container image:
+
+```bash
+docker compose run --rm snapshot-service alembic upgrade head
+```
+
+If `py_wallet` calls this service from the same Docker network, keep the container
+name/DNS name stable:
+
+```text
+http://py-wallet-snapshot-service:8001
+```
+
+See `docs/service-interaction-and-local-runbook.md` for the full local integration
+runbook with `py_wallet`.
+
+## Configuration
+
+Configuration is loaded from environment variables and `.env`.
+
+Core variables:
+
+- `APP_NAME`
+- `ENVIRONMENT`
+- `LOG_LEVEL`
 - `DATABASE_URL`
 - `INTERNAL_API_TOKEN`
+- `SNAPSHOT_SERVICE_HOST`
+- `SNAPSHOT_SERVICE_PORT`
+
+Background processing:
+
 - `SNAPSHOT_WORKER_ENABLED`
 - `SNAPSHOT_SCHEDULER_ENABLED`
 - `SNAPSHOT_INTERVAL_SECONDS`
 - `SNAPSHOT_WORKER_POLL_SECONDS`
+- `SNAPSHOT_ENABLED_CHAINS`
+- `MAX_RETRY_ATTEMPTS`
+- `RETRY_BACKOFF_SECONDS`
+
+Debug and external providers:
+
 - `DEBUG_ENDPOINTS_ENABLED`
 - `ETHEREUM_RPC_URL`
 - `BASE_RPC_URL`
 - `ARBITRUM_RPC_URL`
 - `BNB_RPC_URL`
 - `LINEA_RPC_URL`
+- `CHAIN_TIMEOUT_SECONDS`
+- `ETHEREUM_TIMEOUT_SECONDS`
 - `COINGECKO_BASE_URL`
+- `PRICE_CACHE_TTL_SECONDS`
 
-See `.env.example` for the full list.
+See `.env.example` for defaults.
 
-## API Examples
+For local mainnet-only debugging, set:
+
+```env
+SNAPSHOT_ENABLED_CHAINS=mainnet
+```
+
+The full EVM set is `mainnet,base,arbitrum,bnb,linea`.
+
+## API
 
 Health:
 
@@ -89,13 +180,26 @@ Metrics:
 curl http://localhost:8001/metrics
 ```
 
-Debug jobs:
+List debug jobs when `DEBUG_ENDPOINTS_ENABLED=true`:
 
 ```bash
-curl http://localhost:8001/debug/jobs
+curl "http://localhost:8001/debug/jobs?limit=20"
 ```
 
-Create a manual snapshot job:
+Get a debug job with wallet and chain details:
+
+```bash
+curl http://localhost:8001/debug/jobs/123
+```
+
+Debug-check native EVM balance using the same collector path as snapshot processing:
+
+```bash
+curl "http://localhost:8001/debug/evm-balance?chain=mainnet&address=0x74100A58eC575F7c9E127B464cAf4609e36ee0BB" \
+  -H "X-Internal-Token: change-me"
+```
+
+Create a snapshot job:
 
 ```bash
 curl -X POST http://localhost:8001/internal/snapshot-jobs \
@@ -104,6 +208,13 @@ curl -X POST http://localhost:8001/internal/snapshot-jobs \
   -d '{"user_id":1,"trigger_type":"manual","scope_type":"all"}'
 ```
 
+Supported job scopes:
+
+- `all`
+- `group` with `group_id`
+- `wallet` with `wallet_id`
+- `failed_chains` for retry jobs
+
 Retry failed chains from a parent job:
 
 ```bash
@@ -111,25 +222,70 @@ curl -X POST http://localhost:8001/internal/snapshot-jobs/123/retry-failed \
   -H 'X-Internal-Token: change-me'
 ```
 
-Retry jobs currently store `parent_run_id` and reprocess the parent scope. Exact failed-chain-only collection is intentionally left for a later iteration.
+Get job status for backend polling:
+
+```bash
+curl http://localhost:8001/internal/snapshot-jobs/123 \
+  -H 'X-Internal-Token: change-me'
+```
+
+Internal job endpoints require `X-Internal-Token`.
 
 ## Worker And Scheduler
 
-The scheduler only creates `scheduled/all/pending` jobs for active users who have active wallets. It does not call RPC.
+The scheduler creates `scheduled/all/pending` jobs for active users who have active
+wallets. It skips users that already have a scheduled pending or running job.
 
 The worker loop:
 
-1. claims the oldest pending job;
-2. marks it `running`;
-3. processes wallets outside the claim transaction;
-4. writes wallet, chain, and balance snapshots;
-5. marks the job `success`, `partial_success`, or `failed`.
+1. Updates pending/running job gauges.
+2. Claims the oldest pending job.
+3. Marks it `running`.
+4. Loads active wallets for the job scope.
+5. Collects balances for manual wallets or supported EVM chains.
+6. Writes wallet, chain, and balance snapshots.
+7. Marks the job `success`, `partial_success`, or `failed`.
 
-Missing RPC URLs are recorded as failed chain snapshots with `error_type=missing_rpc_url`; other chains continue.
+Retry jobs store `parent_run_id`, use `scope_type=failed_chains`, and process only
+failed chains from the parent job for matching wallets.
+
+Missing RPC URLs are recorded as failed chain snapshots with
+`error_type=missing_rpc_url`. Other wallets/chains can still complete, so the final
+job status may be `partial_success`.
+
+## Database And Migrations
+
+`py_wallet` owns the user-facing domain tables. This service only maps the columns
+it needs:
+
+- `users(id, email, is_active)`
+- `wallet_groups(id, user_id, name)`
+- `wallets(id, user_id, group_id, label, address, chain_type, wallet_type, is_active)`
+- `assets(id, symbol, name, contract_address, chain, decimals)`
+- `manual_balances(wallet_id, asset_id, amount, price_usd)`
+
+`py_wallet-snapshot-service` owns:
+
+- `snapshot_runs`
+- `wallet_snapshots`
+- `chain_snapshots`
+- `snapshot_balance_snapshots`
+
+Alembic uses a dedicated version table:
+
+```text
+snapshot_service_alembic_version
+```
+
+This is intentional because `py_wallet` and `py_wallet-snapshot-service` share one
+database but have separate migration histories.
+
+If the `py_wallet` schema changes, update `app/models/external.py`. Snapshot-service
+migrations should stay limited to snapshot-owned tables.
 
 ## Metrics
 
-Exposed Prometheus metrics include:
+Prometheus metrics include:
 
 - `snapshot_worker_jobs_total`
 - `snapshot_worker_job_duration_seconds`
@@ -143,32 +299,28 @@ Exposed Prometheus metrics include:
 - `snapshot_worker_balance_snapshots_written_total`
 - `snapshot_scheduler_jobs_created_total`
 
-## Tests
+## Tests And Quality
+
+Run tests:
 
 ```bash
 pytest
 ```
 
-The tests use SQLite fixtures for API, scheduler, worker claim, manual wallet processing, and partial success behavior.
+Run linting:
 
-## Schema Assumptions
+```bash
+ruff check .
+```
 
-`py_wallet-api` owns these tables and columns:
+The test suite uses SQLite fixtures and covers health/API behavior, job creation,
+worker claiming, scheduler job creation, manual wallet handling, and partial success
+processing.
 
-- `users(id, email, is_active)`
-- `wallet_groups(id, user_id, name)`
-- `wallets(id, user_id, group_id, label, address, chain_type, wallet_type, is_active)`
-- `assets(id, symbol, name, coingecko_id)`
-- `manual_balances(wallet_id, asset_id, amount, price_usd)` with symbols read from `assets`
+## Current Limits
 
-If the real `py_wallet-api` schema differs, update `app/models/external.py`. Alembic migrations in this repo are intentionally limited to snapshot-owned tables.
-
-## Roadmap
-
-- ERC-20 token collection.
-- Exact failed-chain retry processing.
-- Separate web/worker/scheduler runtime modes.
-- Docker and compose in infra repo.
-- Binance/exchange wallet support.
-- User-defined chains and token contracts.
-- Grafana dashboards and alerting rules.
+- ERC-20 token collection is not implemented yet.
+- Exchange wallets are not implemented yet.
+- User-defined chains and token contracts are not implemented yet.
+- Web, worker, and scheduler are not split into separate runtime processes yet.
+- Kubernetes manifests and dashboards are expected to live in infrastructure code.

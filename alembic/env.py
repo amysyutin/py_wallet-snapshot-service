@@ -12,12 +12,14 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
+SNAPSHOT_ALEMBIC_VERSION_TABLE = "snapshot_service_alembic_version"
 
 
 def run_migrations_offline() -> None:
     context.configure(
         url=get_settings().database_url,
         target_metadata=target_metadata,
+        version_table=SNAPSHOT_ALEMBIC_VERSION_TABLE,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         include_name=include_snapshot_tables,
@@ -34,6 +36,7 @@ def run_migrations_online() -> None:
         context.configure(
             connection=connection,
             target_metadata=target_metadata,
+            version_table=SNAPSHOT_ALEMBIC_VERSION_TABLE,
             include_name=include_snapshot_tables,
         )
         with context.begin_transaction():
@@ -47,6 +50,7 @@ def include_snapshot_tables(name, type_, parent_names):
             "wallet_snapshots",
             "chain_snapshots",
             "snapshot_balance_snapshots",
+            SNAPSHOT_ALEMBIC_VERSION_TABLE,
         }
     return True
 

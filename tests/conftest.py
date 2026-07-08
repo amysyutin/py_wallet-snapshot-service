@@ -1,6 +1,6 @@
+import os
 from collections.abc import Generator
 from decimal import Decimal
-import os
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,6 +11,7 @@ from sqlalchemy.pool import StaticPool
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("SNAPSHOT_WORKER_ENABLED", "false")
 os.environ.setdefault("SNAPSHOT_SCHEDULER_ENABLED", "false")
+os.environ.setdefault("SNAPSHOT_ENABLED_CHAINS", "mainnet,base,arbitrum,bnb,linea")
 os.environ.setdefault("INTERNAL_API_TOKEN", "test-token")
 
 from app.config import get_settings
@@ -27,7 +28,9 @@ def db_session() -> Generator[Session, None, None]:
         poolclass=StaticPool,
     )
     Base.metadata.create_all(engine)
-    TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False)
+    TestingSessionLocal = sessionmaker(
+        bind=engine, autoflush=False, autocommit=False, expire_on_commit=False
+    )
     with TestingSessionLocal() as session:
         yield session
 
@@ -37,6 +40,7 @@ def client(monkeypatch, db_session: Session) -> Generator[TestClient, None, None
     monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
     monkeypatch.setenv("SNAPSHOT_WORKER_ENABLED", "false")
     monkeypatch.setenv("SNAPSHOT_SCHEDULER_ENABLED", "false")
+    monkeypatch.setenv("SNAPSHOT_ENABLED_CHAINS", "mainnet,base,arbitrum,bnb,linea")
     monkeypatch.setenv("INTERNAL_API_TOKEN", "test-token")
     get_settings.cache_clear()
 

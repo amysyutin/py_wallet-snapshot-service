@@ -58,3 +58,27 @@ class DebugJobDetail(BaseModel):
     job: DebugJobItem
     wallets: list[DebugWalletItem]
 
+
+class DebugBalanceResultItem(BaseModel):
+    symbol: str
+    asset_address: str | None
+    asset_type: str
+    amount: Decimal
+    price_usd: Decimal | None
+    value_usd: Decimal
+    price_source: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class DebugEvmBalanceResponse(BaseModel):
+    chain: str
+    address: str
+    status: str
+    native_balance: Decimal | None
+    total_usd: Decimal
+    rpc_latency_ms: int | None
+    balances: list[DebugBalanceResultItem]
+    error_type: str | None
+    error_message: str | None
+

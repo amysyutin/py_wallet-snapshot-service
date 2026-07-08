@@ -2,9 +2,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.api.auth import require_internal_token
 from app.config import get_settings
 from app.db import get_db
 from app.models.snapshots import BalanceSnapshot, ChainSnapshot, SnapshotRun
+from app.schemas.debug import DebugEvmBalanceResponse
 from app.schemas.debug import (
     DebugChainItem,
     DebugJobDetail,
@@ -12,6 +14,9 @@ from app.schemas.debug import (
     DebugJobsResponse,
     DebugWalletItem,
 )
+from app.services.chain_config import SUPPORTED_CHAINS, get_chain_configs
+from app.services.evm_collector import EvmCollector
+from app.services.price_service import PriceService
 
 router = APIRouter(prefix="/debug")
 
@@ -81,3 +86,28 @@ def get_job(job_id: int, db: Session = Depends(get_db)):
         for wallet in job.wallet_snapshots
     ]
     return DebugJobDetail(job=DebugJobItem.model_validate(job), wallets=wallets)
+
+
+@router.get(
+    "/evm-balance",
+    response_model=DebugEvmBalanceResponse,
+    dependencies=[Depends(require_debug_enabled), Depends(require_internal_token)],
+)
+def debug_evm_balance(
+    chain: str = Query(..., description=f"One of: {', '.join(SUPPORTED_CHAINS)}"),
+    address: str = Query(..., description="EVM wallet address"),
+):
+    settings = get_settings()
+    collector = EvmCollector(get_chain_configs(settings), PriceService(settings))
+    result = collector.collect_chain(address=address, chain=chain)
+    return DebugEvmBalanceResponse(
+        chain=result.chain,
+        address=address,
+        status=result.status,
+        native_balance=result.native_balance,
+        total_usd=result.total_usd,
+        rpc_latency_ms=result.rpc_latency_ms,
+        balances=result.balances,
+        error_type=result.error_type,
+        error_message=result.error_message,
+    )

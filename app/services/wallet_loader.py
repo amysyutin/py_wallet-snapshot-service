@@ -17,10 +17,9 @@ class WalletLoader:
         elif job.scope_type == ScopeType.WALLET.value:
             stmt = stmt.where(Wallet.id == job.wallet_id)
         elif job.scope_type == ScopeType.FAILED_CHAINS.value:
-            # MVP: retry job narrows by parent_run_id metadata later; for now reprocesses parent scope.
+            # Chain-level narrowing happens in SnapshotProcessor using parent_run_id.
             if job.wallet_id:
                 stmt = stmt.where(Wallet.id == job.wallet_id)
             elif job.group_id:
                 stmt = stmt.where(Wallet.group_id == job.group_id)
         return list(self.db.scalars(stmt.order_by(Wallet.id)))
-

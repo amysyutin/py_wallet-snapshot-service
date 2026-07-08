@@ -1,0 +1,15 @@
+services:
+  snapshot-service:
+    image: py_wallet_snapshot_service:dev
+    container_name: py-wallet-snapshot-service
+    env_file:
+      - .env
+    ports:
+      - "8001:8001"
+    networks:
+      - py_wallet_default
+    restart: unless-stopped
+networks:
+  py_wallet_default:
+    external: true
+    name: py_wallet_default

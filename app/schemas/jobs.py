@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, model_validator
 
 from app.enums import JobStatus, ScopeType, TriggerType
@@ -23,3 +25,17 @@ class SnapshotJobCreateResponse(BaseModel):
     job_id: int
     status: JobStatus
 
+
+class SnapshotJobStatusResponse(BaseModel):
+    job_id: int
+    user_id: int
+    trigger_type: TriggerType
+    scope_type: ScopeType
+    status: JobStatus
+    group_id: int | None
+    wallet_id: int | None
+    parent_run_id: int | None
+    created_at: datetime
+    started_at: datetime | None
+    finished_at: datetime | None
+    error_message: str | None

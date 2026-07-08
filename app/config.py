@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     snapshot_scheduler_enabled: bool = True
     snapshot_interval_seconds: int = 300
     snapshot_worker_poll_seconds: int = 5
+    snapshot_enabled_chains: str = "mainnet,base,arbitrum,bnb,linea"
     debug_endpoints_enabled: bool = True
 
     chain_timeout_seconds: int = 8

@@ -18,6 +18,24 @@ def test_can_create_all_job(client):
     assert response.json()["status"] == "pending"
 
 
+def test_can_get_job_status(client):
+    created = client.post(
+        "/internal/snapshot-jobs",
+        headers={"X-Internal-Token": "test-token"},
+        json={"user_id": 1, "trigger_type": "manual", "scope_type": "all"},
+    )
+    job_id = created.json()["job_id"]
+
+    response = client.get(
+        f"/internal/snapshot-jobs/{job_id}",
+        headers={"X-Internal-Token": "test-token"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["job_id"] == job_id
+    assert response.json()["status"] == "pending"
+
+
 def test_can_create_group_job(client):
     response = client.post(
         "/internal/snapshot-jobs",
@@ -46,4 +64,3 @@ def test_invalid_scope_validation(client):
     )
 
     assert response.status_code == 422
-

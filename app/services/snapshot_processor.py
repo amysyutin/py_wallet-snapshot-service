@@ -1,21 +1,26 @@
 import logging
 from datetime import UTC, datetime
 from decimal import Decimal
+from time import perf_counter
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.config import get_settings
-from app.enums import ChainStatus, JobStatus, WalletSnapshotStatus, WalletType
+from app.enums import ChainStatus, JobStatus, ScopeType, WalletSnapshotStatus, WalletType
 from app.metrics import (
     balance_snapshots_written_total,
+    chain_duration_seconds,
     chain_requests_total,
+    job_duration_seconds,
     jobs_total,
     last_success_timestamp,
+    rpc_latency_seconds,
     wallets_processed_total,
 )
 from app.models.external import Wallet
 from app.models.snapshots import BalanceSnapshot, ChainSnapshot, SnapshotRun, WalletSnapshot
-from app.services.chain_config import SUPPORTED_CHAINS, get_chain_configs
+from app.services.chain_config import get_chain_configs, get_enabled_chains
 from app.services.evm_collector import ChainCollectionResult, EvmCollector
 from app.services.manual_collector import ManualCollector
 from app.services.price_service import PriceService
@@ -34,11 +39,15 @@ class SnapshotProcessor:
         self.db = db
         settings = get_settings()
         price_service = PriceService(settings)
-        self.evm_collector = evm_collector or EvmCollector(get_chain_configs(settings), price_service)
+        self.evm_collector = evm_collector or EvmCollector(
+            get_chain_configs(settings), price_service
+        )
         self.manual_collector = manual_collector or ManualCollector(db, price_service)
         self.wallet_loader = WalletLoader(db)
+        self.enabled_chains = get_enabled_chains(settings)
 
     def process(self, job: SnapshotRun) -> str:
+        started = perf_counter()
         logger.info(
             "snapshot_job_started",
             extra=self._log_extra(job, status=JobStatus.RUNNING.value),
@@ -50,6 +59,9 @@ class SnapshotProcessor:
             job.finished_at = datetime.now(UTC)
             self.db.commit()
             jobs_total.labels(job.status, job.trigger_type, job.scope_type).inc()
+            job_duration_seconds.labels(job.status, job.trigger_type, job.scope_type).observe(
+                perf_counter() - started
+            )
             return job.status
 
         wallet_statuses = [self._process_wallet(job, wallet) for wallet in wallets]
@@ -57,7 +69,8 @@ class SnapshotProcessor:
             job.status = JobStatus.SUCCESS.value
             last_success_timestamp.set(datetime.now(UTC).timestamp())
         elif any(
-            status in {WalletSnapshotStatus.SUCCESS.value, WalletSnapshotStatus.PARTIAL_SUCCESS.value}
+            status
+            in {WalletSnapshotStatus.SUCCESS.value, WalletSnapshotStatus.PARTIAL_SUCCESS.value}
             for status in wallet_statuses
         ):
             job.status = JobStatus.PARTIAL_SUCCESS.value
@@ -67,6 +80,9 @@ class SnapshotProcessor:
         job.finished_at = datetime.now(UTC)
         self.db.commit()
         jobs_total.labels(job.status, job.trigger_type, job.scope_type).inc()
+        job_duration_seconds.labels(job.status, job.trigger_type, job.scope_type).observe(
+            perf_counter() - started
+        )
         logger.info("snapshot_job_finished", extra=self._log_extra(job, status=job.status))
         return job.status
 
@@ -89,9 +105,10 @@ class SnapshotProcessor:
         )
 
         if wallet.wallet_type == WalletType.MANUAL.value:
-            results = [self.manual_collector.collect_wallet(wallet.id)]
+            results = [self._collect_manual_wallet(job, wallet)]
         elif wallet.wallet_type == WalletType.EVM.value:
-            results = [self.evm_collector.collect_chain(wallet.address or "", chain) for chain in SUPPORTED_CHAINS]
+            chains = self._chains_for_wallet(job, wallet)
+            results = [self._collect_evm_chain(job, wallet, chain) for chain in chains]
         else:
             results = [
                 ChainCollectionResult(
@@ -123,7 +140,75 @@ class SnapshotProcessor:
         wallets_processed_total.labels(wallet_snapshot.status).inc()
         return wallet_snapshot.status
 
-    def _write_chain_result(self, wallet_snapshot: WalletSnapshot, result: ChainCollectionResult) -> None:
+    def _chains_for_wallet(self, job: SnapshotRun, wallet: Wallet) -> tuple[str, ...]:
+        if job.scope_type != ScopeType.FAILED_CHAINS.value or job.parent_run_id is None:
+            return self.enabled_chains
+
+        stmt = (
+            select(ChainSnapshot.chain)
+            .join(ChainSnapshot.wallet_snapshot)
+            .where(
+                WalletSnapshot.snapshot_run_id == job.parent_run_id,
+                WalletSnapshot.wallet_id == wallet.id,
+                ChainSnapshot.status == ChainStatus.FAILED.value,
+            )
+            .order_by(ChainSnapshot.chain)
+        )
+        chains = tuple(chain for chain in self.db.scalars(stmt) if chain in self.enabled_chains)
+        return chains or self.enabled_chains
+
+    def _collect_manual_wallet(self, job: SnapshotRun, wallet: Wallet) -> ChainCollectionResult:
+        started = perf_counter()
+        result = self.manual_collector.collect_wallet(wallet.id)
+        chain_duration_seconds.labels(result.chain, result.status).observe(perf_counter() - started)
+        logger.info(
+            "chain_collection_succeeded"
+            if result.status == ChainStatus.SUCCESS.value
+            else "chain_collection_failed",
+            extra=self._log_extra(
+                job,
+                wallet_id=wallet.id,
+                chain=result.chain,
+                status=result.status,
+                error_type=result.error_type,
+            ),
+        )
+        return result
+
+    def _collect_evm_chain(
+        self, job: SnapshotRun, wallet: Wallet, chain: str
+    ) -> ChainCollectionResult:
+        logger.info(
+            "chain_collection_started",
+            extra=self._log_extra(
+                job,
+                wallet_id=wallet.id,
+                chain=chain,
+                status=WalletSnapshotStatus.RUNNING.value,
+            ),
+        )
+        started = perf_counter()
+        result = self.evm_collector.collect_chain(wallet.address or "", chain)
+        chain_duration_seconds.labels(result.chain, result.status).observe(perf_counter() - started)
+        if result.rpc_latency_ms is not None:
+            rpc_latency_seconds.labels(result.chain).observe(result.rpc_latency_ms / 1000)
+        logger.info(
+            "chain_collection_succeeded"
+            if result.status == ChainStatus.SUCCESS.value
+            else "chain_collection_failed",
+            extra=self._log_extra(
+                job,
+                wallet_id=wallet.id,
+                chain=result.chain,
+                status=result.status,
+                error_type=result.error_type,
+            ),
+        )
+        return result
+
+    def _write_chain_result(
+        self, wallet_snapshot: WalletSnapshot, result: ChainCollectionResult
+    ) -> None:
         now = datetime.now(UTC)
         chain_snapshot = ChainSnapshot(
             wallet_snapshot_id=wallet_snapshot.id,

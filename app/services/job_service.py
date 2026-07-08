@@ -29,6 +29,12 @@ class JobService:
         self.db.refresh(job)
         return job
 
+    def get_job(self, job_id: int) -> SnapshotRun:
+        job = self.db.get(SnapshotRun, job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="job not found")
+        return job
+
     def create_retry_failed_job(self, parent_job_id: int) -> SnapshotRun:
         parent = self.db.get(SnapshotRun, parent_job_id)
         if parent is None:
@@ -57,4 +63,3 @@ class JobService:
         self.db.commit()
         self.db.refresh(job)
         return job
-
