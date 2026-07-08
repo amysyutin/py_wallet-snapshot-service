@@ -46,7 +46,7 @@ def include_snapshot_tables(name, type_, parent_names):
             "snapshot_runs",
             "wallet_snapshots",
             "chain_snapshots",
-            "balance_snapshots",
+            "snapshot_balance_snapshots",
         }
     return True
 
@@ -55,4 +55,3 @@ if context.is_offline_mode():
     run_migrations_offline()
 else:
     run_migrations_online()
-

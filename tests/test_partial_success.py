@@ -67,7 +67,7 @@ def test_one_failed_chain_is_partial_success(db_session):
     job = make_job(db_session)
     status = SnapshotProcessor(
         db_session,
-        evm_collector=FakeEvmCollector({"ethereum": ChainStatus.FAILED.value}),
+        evm_collector=FakeEvmCollector({"mainnet": ChainStatus.FAILED.value}),
     ).process(job)
 
     assert status == JobStatus.PARTIAL_SUCCESS.value
@@ -78,7 +78,7 @@ def test_all_failed_chains_fail_job(db_session):
     status = SnapshotProcessor(
         db_session,
         evm_collector=FakeEvmCollector(
-            {chain: ChainStatus.FAILED.value for chain in ["ethereum", "base", "arbitrum", "bnb", "linea"]}
+            {chain: ChainStatus.FAILED.value for chain in ["mainnet", "base", "arbitrum", "bnb", "linea"]}
         ),
     ).process(job)
 
@@ -90,4 +90,3 @@ def test_all_successful_chains_succeed_job(db_session):
     status = SnapshotProcessor(db_session, evm_collector=FakeEvmCollector({})).process(job)
 
     assert status == JobStatus.SUCCESS.value
-

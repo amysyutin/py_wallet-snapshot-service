@@ -91,7 +91,7 @@ def upgrade() -> None:
     )
 
     op.create_table(
-        "balance_snapshots",
+        "snapshot_balance_snapshots",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("chain_snapshot_id", sa.Integer(), sa.ForeignKey("chain_snapshots.id"), nullable=False),
         sa.Column("asset_symbol", sa.String(length=32), nullable=False),
@@ -102,18 +102,25 @@ def upgrade() -> None:
         sa.Column("value_usd", sa.Numeric(38, 18), nullable=False),
         sa.Column("price_source", sa.String(length=64), nullable=True),
     )
-    op.create_index("ix_balance_snapshots_chain_snapshot_id", "balance_snapshots", ["chain_snapshot_id"])
-    op.create_index("ix_balance_snapshots_asset_symbol", "balance_snapshots", ["asset_symbol"])
     op.create_index(
-        "ix_balance_snapshots_chain_symbol",
-        "balance_snapshots",
+        "ix_snapshot_balance_snapshots_chain_snapshot_id",
+        "snapshot_balance_snapshots",
+        ["chain_snapshot_id"],
+    )
+    op.create_index(
+        "ix_snapshot_balance_snapshots_asset_symbol",
+        "snapshot_balance_snapshots",
+        ["asset_symbol"],
+    )
+    op.create_index(
+        "ix_snapshot_balance_snapshots_chain_symbol",
+        "snapshot_balance_snapshots",
         ["chain_snapshot_id", "asset_symbol"],
     )
 
 
 def downgrade() -> None:
-    op.drop_table("balance_snapshots")
+    op.drop_table("snapshot_balance_snapshots")
     op.drop_table("chain_snapshots")
     op.drop_table("wallet_snapshots")
     op.drop_table("snapshot_runs")
-

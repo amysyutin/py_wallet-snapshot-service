@@ -82,9 +82,9 @@ class ChainSnapshot(Base):
 
 
 class BalanceSnapshot(Base):
-    __tablename__ = "balance_snapshots"
+    __tablename__ = "snapshot_balance_snapshots"
     __table_args__ = (
-        Index("ix_balance_snapshots_chain_symbol", "chain_snapshot_id", "asset_symbol"),
+        Index("ix_snapshot_balance_snapshots_chain_symbol", "chain_snapshot_id", "asset_symbol"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -98,4 +98,3 @@ class BalanceSnapshot(Base):
     price_source: Mapped[str | None] = mapped_column(String(64))
 
     chain_snapshot: Mapped[ChainSnapshot] = relationship(back_populates="balance_snapshots")
-

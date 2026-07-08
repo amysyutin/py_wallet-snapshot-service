@@ -17,7 +17,7 @@ Prometheus       -> /metrics from services -> Grafana/alerts
 - Runs local background scheduler and worker loops in one process.
 - Claims jobs with PostgreSQL row-level locking using `FOR UPDATE SKIP LOCKED`.
 - Reads API-owned tables: `users`, `wallet_groups`, `wallets`, `manual_balances`, `assets`.
-- Owns snapshot tables: `snapshot_runs`, `wallet_snapshots`, `chain_snapshots`, `balance_snapshots`.
+- Owns snapshot tables: `snapshot_runs`, `wallet_snapshots`, `chain_snapshots`, `snapshot_balance_snapshots`.
 - Collects EVM native balances with JSON-RPC `eth_getBalance`.
 - Processes manual wallets without RPC.
 - Uses CoinGecko with static local fallback prices for common symbols.
@@ -159,7 +159,7 @@ The tests use SQLite fixtures for API, scheduler, worker claim, manual wallet pr
 - `wallet_groups(id, user_id, name)`
 - `wallets(id, user_id, group_id, label, address, chain_type, wallet_type, is_active)`
 - `assets(id, symbol, name, coingecko_id)`
-- `manual_balances(id, wallet_id, asset_id, symbol, amount, price_usd, value_usd)`
+- `manual_balances(wallet_id, asset_id, amount, price_usd)` with symbols read from `assets`
 
 If the real `py_wallet-api` schema differs, update `app/models/external.py`. Alembic migrations in this repo are intentionally limited to snapshot-owned tables.
 
@@ -172,4 +172,3 @@ If the real `py_wallet-api` schema differs, update `app/models/external.py`. Ale
 - Binance/exchange wallet support.
 - User-defined chains and token contracts.
 - Grafana dashboards and alerting rules.
-

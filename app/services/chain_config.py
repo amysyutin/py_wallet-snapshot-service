@@ -11,13 +11,13 @@ class ChainConfig:
     timeout_seconds: int
 
 
-SUPPORTED_CHAINS = ("ethereum", "base", "arbitrum", "bnb", "linea")
+SUPPORTED_CHAINS = ("mainnet", "base", "arbitrum", "bnb", "linea")
 
 
 def get_chain_configs(settings: Settings) -> dict[str, ChainConfig]:
     return {
-        "ethereum": ChainConfig(
-            "ethereum", "ETH", settings.ethereum_rpc_url, settings.ethereum_timeout_seconds
+        "mainnet": ChainConfig(
+            "mainnet", "ETH", settings.ethereum_rpc_url, settings.ethereum_timeout_seconds
         ),
         "base": ChainConfig("base", "ETH", settings.base_rpc_url, settings.chain_timeout_seconds),
         "arbitrum": ChainConfig(
@@ -26,4 +26,3 @@ def get_chain_configs(settings: Settings) -> dict[str, ChainConfig]:
         "bnb": ChainConfig("bnb", "BNB", settings.bnb_rpc_url, settings.chain_timeout_seconds),
         "linea": ChainConfig("linea", "ETH", settings.linea_rpc_url, settings.chain_timeout_seconds),
     }
-

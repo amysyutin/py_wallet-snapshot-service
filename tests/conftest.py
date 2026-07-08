@@ -16,7 +16,7 @@ os.environ.setdefault("INTERNAL_API_TOKEN", "test-token")
 from app.config import get_settings
 from app.db import Base, get_db
 from app.main import create_app
-from app.models.external import ManualBalance, User, Wallet
+from app.models.external import Asset, ManualBalance, User, Wallet
 
 
 @pytest.fixture()
@@ -76,14 +76,21 @@ def seed_user_wallet(
 
 
 def seed_manual_balance(db: Session, wallet_id: int = 1, symbol: str = "USDC") -> None:
+    asset = Asset(
+        id=1,
+        symbol=symbol,
+        name=symbol,
+        contract_address=None,
+        chain="manual",
+        decimals=18,
+    )
+    db.add(asset)
     db.add(
         ManualBalance(
             wallet_id=wallet_id,
-            asset_id=None,
-            symbol=symbol,
+            asset_id=asset.id,
             amount=Decimal("12.5"),
             price_usd=Decimal("1"),
-            value_usd=None,
         )
     )
     db.commit()

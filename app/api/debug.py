@@ -81,4 +81,3 @@ def get_job(job_id: int, db: Session = Depends(get_db)):
         for wallet in job.wallet_snapshots
     ]
     return DebugJobDetail(job=DebugJobItem.model_validate(job), wallets=wallets)
-
