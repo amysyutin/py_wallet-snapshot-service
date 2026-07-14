@@ -42,6 +42,7 @@ def client(monkeypatch, db_session: Session) -> Generator[TestClient, None, None
     monkeypatch.setenv("SNAPSHOT_SCHEDULER_ENABLED", "false")
     monkeypatch.setenv("SNAPSHOT_ENABLED_CHAINS", "mainnet,base,arbitrum,bnb,linea")
     monkeypatch.setenv("INTERNAL_API_TOKEN", "test-token")
+    monkeypatch.setenv("DEBUG_ENDPOINTS_ENABLED", "true")
     get_settings.cache_clear()
 
     app = create_app()
