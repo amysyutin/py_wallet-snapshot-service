@@ -9,4 +9,3 @@ router = APIRouter()
 @router.get("/metrics")
 def metrics() -> Response:
     return Response(generate_latest(registry), media_type=CONTENT_TYPE_LATEST)
-

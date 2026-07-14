@@ -29,4 +29,3 @@ def test_scheduler_does_not_create_duplicate_pending_job(db_session):
 
     assert created == 0
     assert db_session.query(SnapshotRun).count() == 1
-

@@ -16,5 +16,6 @@ PERMANENT_ERRORS = {
 
 
 def should_retry(error_type: str | None) -> bool:
-    return bool(error_type and error_type in TEMPORARY_ERRORS and error_type not in PERMANENT_ERRORS)
-
+    return bool(
+        error_type and error_type in TEMPORARY_ERRORS and error_type not in PERMANENT_ERRORS
+    )

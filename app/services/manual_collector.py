@@ -59,5 +59,7 @@ class ManualCollector:
             rpc_latency_ms=None,
             balances=balances,
             error_type=ErrorType.PRICE_UNAVAILABLE.value if missing_prices else None,
-            error_message=f"missing prices for: {', '.join(missing_prices)}" if missing_prices else None,
+            error_message=f"missing prices for: {', '.join(missing_prices)}"
+            if missing_prices
+            else None,
         )

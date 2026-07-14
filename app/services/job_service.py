@@ -43,7 +43,10 @@ class JobService:
         failed_chain_exists = self.db.scalar(
             select(ChainSnapshot.id)
             .join(ChainSnapshot.wallet_snapshot)
-            .where(ChainSnapshot.status == "failed", ChainSnapshot.wallet_snapshot.has(snapshot_run_id=parent.id))
+            .where(
+                ChainSnapshot.status == "failed",
+                ChainSnapshot.wallet_snapshot.has(snapshot_run_id=parent.id),
+            )
             .limit(1)
         )
         if failed_chain_exists is None:

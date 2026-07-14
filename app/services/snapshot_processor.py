@@ -224,9 +224,7 @@ class SnapshotProcessor:
         )
         self.db.add(chain_snapshot)
         self.db.flush()
-        chain_requests_total.labels(
-            result.chain, result.status, result.error_type or "none"
-        ).inc()
+        chain_requests_total.labels(result.chain, result.status, result.error_type or "none").inc()
         for balance in result.balances:
             self.db.add(
                 BalanceSnapshot(

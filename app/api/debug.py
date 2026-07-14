@@ -6,9 +6,9 @@ from app.api.auth import require_internal_token
 from app.config import get_settings
 from app.db import get_db
 from app.models.snapshots import BalanceSnapshot, ChainSnapshot, SnapshotRun
-from app.schemas.debug import DebugEvmBalanceResponse
 from app.schemas.debug import (
     DebugChainItem,
+    DebugEvmBalanceResponse,
     DebugJobDetail,
     DebugJobItem,
     DebugJobsResponse,
@@ -26,7 +26,9 @@ def require_debug_enabled() -> None:
         raise HTTPException(status_code=404, detail="debug endpoints disabled")
 
 
-@router.get("/jobs", response_model=DebugJobsResponse, dependencies=[Depends(require_debug_enabled)])
+@router.get(
+    "/jobs", response_model=DebugJobsResponse, dependencies=[Depends(require_debug_enabled)]
+)
 def list_jobs(
     limit: int = Query(default=20, ge=1, le=100),
     status: str | None = None,

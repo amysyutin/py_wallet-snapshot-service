@@ -25,4 +25,3 @@ def test_manual_wallet_creates_snapshots(db_session):
     wallet_snapshot = db_session.query(WalletSnapshot).one()
     assert str(wallet_snapshot.total_usd) == "12.500000000000000000"
     assert db_session.query(BalanceSnapshot).count() == 1
-

@@ -56,4 +56,3 @@ scheduler_jobs_created_total = Counter(
     ["result"],
     registry=registry,
 )
-

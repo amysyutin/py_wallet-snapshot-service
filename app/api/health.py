@@ -19,4 +19,3 @@ def health(db: Session = Depends(get_db)) -> HealthResponse:
         environment=settings.environment,
         database="ok",
     )
-

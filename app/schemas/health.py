@@ -6,4 +6,3 @@ class HealthResponse(BaseModel):
     service: str
     environment: str
     database: str
-

@@ -4,8 +4,10 @@ Revision ID: 20260628_0001
 Revises:
 Create Date: 2026-06-28
 """
-from alembic import op
+
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "20260628_0001"
 down_revision = None
@@ -24,7 +26,9 @@ def upgrade() -> None:
         sa.Column("wallet_id", sa.Integer(), nullable=True),
         sa.Column("parent_run_id", sa.Integer(), nullable=True),
         sa.Column("status", sa.String(length=32), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("error_message", sa.Text(), nullable=True),
@@ -47,7 +51,9 @@ def upgrade() -> None:
     op.create_table(
         "wallet_snapshots",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("snapshot_run_id", sa.Integer(), sa.ForeignKey("snapshot_runs.id"), nullable=False),
+        sa.Column(
+            "snapshot_run_id", sa.Integer(), sa.ForeignKey("snapshot_runs.id"), nullable=False
+        ),
         sa.Column("wallet_id", sa.Integer(), nullable=False),
         sa.Column("group_id", sa.Integer(), nullable=True),
         sa.Column("wallet_type", sa.String(length=32), nullable=False),
@@ -71,7 +77,9 @@ def upgrade() -> None:
     op.create_table(
         "chain_snapshots",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("wallet_snapshot_id", sa.Integer(), sa.ForeignKey("wallet_snapshots.id"), nullable=False),
+        sa.Column(
+            "wallet_snapshot_id", sa.Integer(), sa.ForeignKey("wallet_snapshots.id"), nullable=False
+        ),
         sa.Column("chain", sa.String(length=64), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("native_balance", sa.Numeric(38, 18), nullable=True),
@@ -82,7 +90,9 @@ def upgrade() -> None:
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
     )
-    op.create_index("ix_chain_snapshots_wallet_snapshot_id", "chain_snapshots", ["wallet_snapshot_id"])
+    op.create_index(
+        "ix_chain_snapshots_wallet_snapshot_id", "chain_snapshots", ["wallet_snapshot_id"]
+    )
     op.create_index("ix_chain_snapshots_chain", "chain_snapshots", ["chain"])
     op.create_index("ix_chain_snapshots_status", "chain_snapshots", ["status"])
     op.create_index("ix_chain_snapshots_error_type", "chain_snapshots", ["error_type"])
@@ -93,7 +103,9 @@ def upgrade() -> None:
     op.create_table(
         "snapshot_balance_snapshots",
         sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("chain_snapshot_id", sa.Integer(), sa.ForeignKey("chain_snapshots.id"), nullable=False),
+        sa.Column(
+            "chain_snapshot_id", sa.Integer(), sa.ForeignKey("chain_snapshots.id"), nullable=False
+        ),
         sa.Column("asset_symbol", sa.String(length=32), nullable=False),
         sa.Column("asset_address", sa.String(length=255), nullable=True),
         sa.Column("asset_type", sa.String(length=32), nullable=False),

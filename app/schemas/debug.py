@@ -81,4 +81,3 @@ class DebugEvmBalanceResponse(BaseModel):
     balances: list[DebugBalanceResultItem]
     error_type: str | None
     error_message: str | None
-

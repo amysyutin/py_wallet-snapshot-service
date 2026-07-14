@@ -45,4 +45,3 @@ def test_double_claim_does_not_claim_same_job_twice(db_session):
 
     assert first is not None
     assert second is None
-

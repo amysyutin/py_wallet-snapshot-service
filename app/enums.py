@@ -59,4 +59,3 @@ class ErrorType(str, Enum):
     PRICE_UNAVAILABLE = "price_unavailable"
     BAD_CONFIG = "bad_config"
     UNKNOWN = "unknown"
-
