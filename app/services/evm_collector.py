@@ -70,7 +70,9 @@ class EvmCollector:
 
         latency_ms = int((perf_counter() - started) * 1000)
         if "error" in payload:
-            return self._failed(chain, ErrorType.RPC_ERROR.value, str(payload["error"])[:250], latency_ms)
+            return self._failed(
+                chain, ErrorType.RPC_ERROR.value, str(payload["error"])[:250], latency_ms
+            )
 
         wei = int(payload.get("result", "0x0"), 16)
         amount = Decimal(wei) / Decimal(10**18)
@@ -115,4 +117,3 @@ class EvmCollector:
             error_type=error_type,
             error_message=error_message,
         )
-

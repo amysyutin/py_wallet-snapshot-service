@@ -11,4 +11,3 @@ def test_metrics_exposes_snapshot_metrics(client):
 
     assert response.status_code == 200
     assert "snapshot_worker_jobs_total" in response.text
-

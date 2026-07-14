@@ -1,0 +1,71 @@
+name: Snapshot Service CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: snapshot-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:  
+          POSTGRES_USER: wallet
+          POSTGRES_PASSWORD: wallet
+          POSTGRES_DB: wallet
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U wallet -d wallet"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      INTERNAL_API_TOKEN: ci-internal-token
+      SNAPSHOT_WORKER_ENABLED: "false"
+      SNAPSHOT_SCHEDULER_ENABLED: "false"
+      DEBUG_ENDPOINTS_ENABLED: "false"
+
+    steps:
+     - name: Checkout repository
+       uses: actions/checkout@v6
+
+     - name: Setup Python
+       uses: actions/setup-python@v6
+       with:
+         python-version: "3.12"
+         cache: pip
+         cache-dependency-path: pyproject.toml
+
+     - name: Install dependencies
+       run: pip install -e ".[dev]"
+
+     - name: Lint
+       run: ruff check .
+
+     - name: Format check
+       run: ruff format --check .
+
+     - name: Run tests
+       run: pytest -v --tb=short
+    
+     - name: Run snapshot database migrations
+       env:
+         DATABASE_URL: postgresql+psycopg://wallet:wallet@localhost:5432/wallet
+       run: |
+         alembic upgrade head
+         alembic current
+
+     - name: Build Docker image
+       run: docker build -t py-wallet-snapshot-service:${{ github.sha }} .

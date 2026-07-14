@@ -50,7 +50,9 @@ def create_scheduled_jobs(db) -> int:
         )
         if existing:
             scheduler_jobs_created_total.labels("skipped_existing_pending").inc()
-            logger.info("scheduled_snapshot_job_skipped_existing_pending", extra={"user_id": user.id})
+            logger.info(
+                "scheduled_snapshot_job_skipped_existing_pending", extra={"user_id": user.id}
+            )
             continue
         db.add(
             SnapshotRun(
@@ -72,4 +74,3 @@ async def run_scheduler_forever() -> None:
     loop = SchedulerLoop()
     with contextlib.suppress(asyncio.CancelledError):
         await loop.run()
-

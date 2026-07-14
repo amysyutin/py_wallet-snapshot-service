@@ -59,4 +59,3 @@ class PriceService:
                 return Decimal(str(value)) if value is not None else None
         except Exception:
             return None
-

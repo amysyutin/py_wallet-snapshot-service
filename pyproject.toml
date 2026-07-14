@@ -21,7 +21,7 @@ dependencies = [
 dev = [
   "pytest",
   "pytest-asyncio",
-  "ruff",
+  "ruff==0.15.21",
   "mypy",
 ]
 
@@ -36,3 +36,15 @@ select = ["E", "F", "I", "UP", "B"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+exclude = ["alembic*", "tests*"]
+namespaces = false

@@ -27,4 +27,3 @@ def claim_next_pending_job(db: Session) -> SnapshotRun | None:
     db.commit()
     db.refresh(job)
     return job
-

@@ -2,7 +2,7 @@ import asyncio
 import contextlib
 import logging
 
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 
 from app.config import get_settings
 from app.db import SessionLocal
@@ -31,7 +31,9 @@ class WorkerLoop:
                 try:
                     SnapshotProcessor(db).process(job)
                 except Exception as exc:
-                    logger.exception("snapshot_job_failed", extra={"job_id": job.id, "error_type": "unknown"})
+                    logger.exception(
+                        "snapshot_job_failed", extra={"job_id": job.id, "error_type": "unknown"}
+                    )
                     job.status = JobStatus.FAILED.value
                     job.error_message = str(exc)[:500]
                     db.commit()
@@ -54,4 +56,3 @@ async def run_worker_forever() -> None:
     loop = WorkerLoop()
     with contextlib.suppress(asyncio.CancelledError):
         await loop.run()
-
