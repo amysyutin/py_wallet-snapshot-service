@@ -1,20 +1,20 @@
-from enum import Enum
+from enum import StrEnum
 
 
-class TriggerType(str, Enum):
+class TriggerType(StrEnum):
     SCHEDULED = "scheduled"
     MANUAL = "manual"
     RETRY = "retry"
 
 
-class ScopeType(str, Enum):
+class ScopeType(StrEnum):
     ALL = "all"
     GROUP = "group"
     WALLET = "wallet"
     FAILED_CHAINS = "failed_chains"
 
 
-class JobStatus(str, Enum):
+class JobStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -23,7 +23,7 @@ class JobStatus(str, Enum):
     CANCELLED = "cancelled"
 
 
-class WalletSnapshotStatus(str, Enum):
+class WalletSnapshotStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
     SUCCESS = "success"
@@ -31,24 +31,24 @@ class WalletSnapshotStatus(str, Enum):
     FAILED = "failed"
 
 
-class ChainStatus(str, Enum):
+class ChainStatus(StrEnum):
     SUCCESS = "success"
     FAILED = "failed"
     SKIPPED = "skipped"
 
 
-class WalletType(str, Enum):
+class WalletType(StrEnum):
     EVM = "evm"
     MANUAL = "manual"
 
 
-class AssetType(str, Enum):
+class AssetType(StrEnum):
     NATIVE = "native"
     ERC20 = "erc20"
     MANUAL = "manual"
 
 
-class ErrorType(str, Enum):
+class ErrorType(StrEnum):
     TIMEOUT = "timeout"
     RATE_LIMIT = "rate_limit"
     RPC_ERROR = "rpc_error"
