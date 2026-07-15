@@ -90,3 +90,41 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
+
+  bump-gitops:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+  
+    steps:
+      - name: Checkout infrastructure repository
+        uses: actions/checkout@v6
+        with:
+          repository: amysyutin/py_wallet-infra
+          ref: main
+          token: ${{ secrets.INFRA_REPO_TOKEN }}
+          path: infra
+  
+      - name: Set up Kustomize
+        uses: imranismail/setup-kustomize@v2
+  
+      - name: Update snapshot-service image
+        working-directory: infra/manifests/snapshot-service
+        run: |
+          kustomize edit set image \
+            ghcr.io/amysyutin/py_wallet-snapshot-service=ghcr.io/${{ github.repository }}:${{ github.sha }}
+  
+      - name: Commit and push infrastructure update
+        working-directory: infra
+        run: |
+          git config user.name "py-wallet deploybot"
+          git config user.email "deploybot@users.noreply.github.com"
+          git add manifests/snapshot-service/kustomization.yaml
+  
+          if git diff --cached --quiet; then
+            echo "Image tag is already up to date"
+            exit 0
+          fi
+  
+          git commit -m "deploy(snapshot): bump image to ${{ github.sha }}"
+          git push origin main  
