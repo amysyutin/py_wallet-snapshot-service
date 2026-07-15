@@ -64,7 +64,7 @@ def seed_user_wallet(
     user_id: int = 1,
     wallet_id: int = 1,
 ) -> Wallet:
-    user = User(id=user_id, email=f"user{user_id}@example.test", is_active=True)
+    user = User(id=user_id, email=f"user{user_id}@example.test")
     wallet = Wallet(
         id=wallet_id,
         user_id=user_id,

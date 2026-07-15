@@ -33,7 +33,6 @@ class SchedulerLoop:
 def create_scheduled_jobs(db) -> int:
     active_users = db.scalars(
         select(User)
-        .where(User.is_active.is_(True))
         .where(exists().where(Wallet.user_id == User.id, Wallet.is_active.is_(True)))
         .order_by(User.id)
     ).all()
