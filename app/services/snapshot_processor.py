@@ -11,9 +11,12 @@ from app.enums import ChainStatus, JobStatus, ScopeType, WalletSnapshotStatus, W
 from app.metrics import (
     balance_snapshots_written_total,
     chain_duration_seconds,
+    chain_last_success_timestamp_seconds,
     chain_requests_total,
     job_duration_seconds,
     jobs_total,
+    last_job_completion_timestamp_seconds,
+    last_job_success_timestamp_seconds,
     last_success_timestamp,
     rpc_latency_seconds,
     wallets_processed_total,
@@ -61,6 +64,9 @@ class SnapshotProcessor:
             job.finished_at = datetime.now(UTC)
             self.db.commit()
             jobs_total.labels(job.status, job.trigger_type, job.scope_type).inc()
+            last_job_completion_timestamp_seconds.labels(job.status, job.trigger_type).set(
+                job.finished_at.timestamp()
+            )
             job_duration_seconds.labels(job.status, job.trigger_type, job.scope_type).observe(
                 perf_counter() - started
             )
@@ -69,7 +75,6 @@ class SnapshotProcessor:
         wallet_statuses = [self._process_wallet(job, wallet) for wallet in wallets]
         if all(status == WalletSnapshotStatus.SUCCESS.value for status in wallet_statuses):
             job.status = JobStatus.SUCCESS.value
-            last_success_timestamp.set(datetime.now(UTC).timestamp())
         elif any(
             status
             in {WalletSnapshotStatus.SUCCESS.value, WalletSnapshotStatus.PARTIAL_SUCCESS.value}
@@ -81,6 +86,14 @@ class SnapshotProcessor:
 
         job.finished_at = datetime.now(UTC)
         self.db.commit()
+        last_job_completion_timestamp_seconds.labels(job.status, job.trigger_type).set(
+            job.finished_at.timestamp()
+        )
+        if job.status == JobStatus.SUCCESS.value:
+            last_success_timestamp.set(job.finished_at.timestamp())
+            last_job_success_timestamp_seconds.labels(job.trigger_type, job.scope_type).set(
+                job.finished_at.timestamp()
+            )
         jobs_total.labels(job.status, job.trigger_type, job.scope_type).inc()
         job_duration_seconds.labels(job.status, job.trigger_type, job.scope_type).observe(
             perf_counter() - started
@@ -227,6 +240,8 @@ class SnapshotProcessor:
         self.db.add(chain_snapshot)
         self.db.flush()
         chain_requests_total.labels(result.chain, result.status, result.error_type or "none").inc()
+        if result.status == ChainStatus.SUCCESS.value:
+            chain_last_success_timestamp_seconds.labels(result.chain).set(now.timestamp())
         for balance in result.balances:
             self.db.add(
                 BalanceSnapshot(

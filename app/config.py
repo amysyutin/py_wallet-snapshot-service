@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "py-wallet-snapshot-service"
+    app_version: str = "0.1.0"
+    build_sha: str = "unknown"
     environment: str = "local"
     log_level: str = "INFO"
 

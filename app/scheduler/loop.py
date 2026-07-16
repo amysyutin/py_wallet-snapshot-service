@@ -4,11 +4,19 @@ import logging
 from datetime import UTC, datetime
 
 from sqlalchemy import exists, select
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
 from app.db import SessionLocal
 from app.enums import JobStatus, ScopeType, TriggerType
-from app.metrics import scheduler_jobs_created_total
+from app.metrics import (
+    background_tick_errors_total,
+    database_errors_total,
+    jobs_enqueued_total,
+    jobs_skipped_total,
+    scheduler_heartbeat_timestamp_seconds,
+    scheduler_jobs_created_total,
+)
 from app.models.external import User, Wallet
 from app.models.snapshots import SnapshotRun
 
@@ -22,10 +30,16 @@ class SchedulerLoop:
     async def run(self) -> None:
         settings = get_settings()
         while not self._stop.is_set():
+            scheduler_heartbeat_timestamp_seconds.set(datetime.now(UTC).timestamp())
             try:
                 with SessionLocal() as db:
                     create_scheduled_jobs(db)
+            except SQLAlchemyError:
+                database_errors_total.labels("scheduler").inc()
+                background_tick_errors_total.labels("scheduler").inc()
+                logger.exception("scheduled_snapshot_database_tick_failed")
             except Exception:
+                background_tick_errors_total.labels("scheduler").inc()
                 logger.exception("scheduled_snapshot_tick_failed")
             await asyncio.sleep(settings.snapshot_interval_seconds)
 
@@ -52,6 +66,7 @@ def create_scheduled_jobs(db) -> int:
         )
         if existing:
             scheduler_jobs_created_total.labels("skipped_existing_pending").inc()
+            jobs_skipped_total.labels("scheduler", "existing_pending").inc()
             logger.info(
                 "scheduled_snapshot_job_skipped_existing_pending", extra={"user_id": user.id}
             )
@@ -69,6 +84,10 @@ def create_scheduled_jobs(db) -> int:
         scheduler_jobs_created_total.labels("created").inc()
         logger.info("scheduled_snapshot_job_created", extra={"user_id": user.id})
     db.commit()
+    if created:
+        jobs_enqueued_total.labels(
+            "scheduler", TriggerType.SCHEDULED.value, ScopeType.ALL.value
+        ).inc(created)
     return created
 
 
