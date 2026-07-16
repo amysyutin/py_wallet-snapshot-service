@@ -22,4 +22,28 @@ class WalletLoader:
                 stmt = stmt.where(Wallet.id == job.wallet_id)
             elif job.group_id:
                 stmt = stmt.where(Wallet.group_id == job.group_id)
-        return list(self.db.scalars(stmt.order_by(Wallet.id)))
+        wallets = list(self.db.scalars(stmt.order_by(Wallet.id)))
+        if job.scope_type in (ScopeType.ALL.value, ScopeType.GROUP.value):
+            return self._deduplicate_evm_addresses(wallets)
+        return wallets
+
+    @staticmethod
+    def _deduplicate_evm_addresses(wallets: list[Wallet]) -> list[Wallet]:
+        """Keep the oldest active wallet for each case-insensitive EVM address.
+
+        Scheduled and group-wide jobs must not scan the same on-chain address
+        more than once. Explicit wallet jobs are intentionally left untouched
+        so an existing duplicate record can still be refreshed and inspected.
+        """
+        seen_addresses: set[str] = set()
+        result: list[Wallet] = []
+        for wallet in wallets:
+            if wallet.wallet_type != "evm" or not wallet.address:
+                result.append(wallet)
+                continue
+            normalized = wallet.address.strip().lower()
+            if normalized in seen_addresses:
+                continue
+            seen_addresses.add(normalized)
+            result.append(wallet)
+        return result
