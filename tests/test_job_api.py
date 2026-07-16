@@ -1,3 +1,6 @@
+from app.metrics import jobs_enqueued_total
+
+
 def test_internal_token_required(client):
     response = client.post(
         "/internal/snapshot-jobs",
@@ -8,6 +11,7 @@ def test_internal_token_required(client):
 
 
 def test_can_create_all_job(client):
+    enqueued_before = jobs_enqueued_total.labels("api", "manual", "all")._value.get()
     response = client.post(
         "/internal/snapshot-jobs",
         headers={"X-Internal-Token": "test-token"},
@@ -16,6 +20,7 @@ def test_can_create_all_job(client):
 
     assert response.status_code == 200
     assert response.json()["status"] == "pending"
+    assert jobs_enqueued_total.labels("api", "manual", "all")._value.get() == enqueued_before + 1
 
 
 def test_can_get_job_status(client):

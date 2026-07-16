@@ -11,6 +11,7 @@ from app.api.internal_jobs import router as internal_jobs_router
 from app.api.metrics import router as metrics_router
 from app.config import get_settings
 from app.logging_config import configure_logging
+from app.metrics import configure_build_info
 from app.scheduler.loop import run_scheduler_forever
 from app.services.chain_config import get_chain_configs
 from app.services.evm_collector import EvmCollector
@@ -66,6 +67,12 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    configure_build_info(
+        service=settings.app_name,
+        version=settings.app_version,
+        build_sha=settings.build_sha,
+        environment=settings.environment,
+    )
     app = FastAPI(title=settings.app_name, lifespan=lifespan)
     app.include_router(health_router)
     app.include_router(metrics_router)

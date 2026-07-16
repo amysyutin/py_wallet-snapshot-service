@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.enums import JobStatus, ScopeType, TriggerType
+from app.metrics import jobs_enqueued_total
 from app.models.snapshots import ChainSnapshot, SnapshotRun
 from app.schemas.jobs import SnapshotJobCreate
 
@@ -27,6 +28,7 @@ class JobService:
         self.db.add(job)
         self.db.commit()
         self.db.refresh(job)
+        jobs_enqueued_total.labels("api", job.trigger_type, job.scope_type).inc()
         return job
 
     def get_job(self, job_id: int) -> SnapshotRun:
@@ -65,4 +67,5 @@ class JobService:
         self.db.add(job)
         self.db.commit()
         self.db.refresh(job)
+        jobs_enqueued_total.labels("api", job.trigger_type, job.scope_type).inc()
         return job

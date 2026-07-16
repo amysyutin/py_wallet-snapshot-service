@@ -3,6 +3,11 @@ from decimal import Decimal
 
 from app.config import get_settings
 from app.enums import AssetType, ChainStatus, JobStatus, ScopeType, TriggerType
+from app.metrics import (
+    chain_last_success_timestamp_seconds,
+    last_job_completion_timestamp_seconds,
+    last_job_success_timestamp_seconds,
+)
 from app.models.snapshots import BalanceSnapshot, SnapshotRun
 from app.services.evm_collector import AssetBalance, ChainCollectionResult
 from app.services.snapshot_processor import SnapshotProcessor
@@ -114,6 +119,9 @@ def test_all_successful_chains_succeed_job(db_session):
     status = SnapshotProcessor(db_session, evm_collector=FakeEvmCollector({})).process(job)
 
     assert status == JobStatus.SUCCESS.value
+    assert last_job_completion_timestamp_seconds.labels("success", "manual")._value.get() > 0
+    assert last_job_success_timestamp_seconds.labels("manual", "all")._value.get() > 0
+    assert chain_last_success_timestamp_seconds.labels("mainnet")._value.get() > 0
 
 
 def test_erc20_balances_are_persisted(db_session, monkeypatch):

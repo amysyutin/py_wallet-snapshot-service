@@ -301,17 +301,34 @@ migrations should stay limited to snapshot-owned tables.
 
 Prometheus metrics include:
 
+- `snapshot_service_build_info`
 - `snapshot_worker_jobs_total`
 - `snapshot_worker_job_duration_seconds`
 - `snapshot_worker_chain_requests_total`
 - `snapshot_worker_chain_duration_seconds`
 - `snapshot_worker_rpc_latency_seconds`
+- `snapshot_worker_rpc_attempts_total`
+- `snapshot_worker_rpc_failovers_total`
+- `snapshot_worker_rpc_circuit_open_total`
 - `snapshot_worker_pending_jobs`
 - `snapshot_worker_running_jobs`
+- `snapshot_worker_oldest_pending_job_age_seconds`
+- `snapshot_worker_heartbeat_timestamp_seconds`
+- `snapshot_scheduler_heartbeat_timestamp_seconds`
+- `snapshot_background_tick_errors_total`
+- `snapshot_database_errors_total`
 - `snapshot_worker_last_success_timestamp`
+- `snapshot_worker_last_job_completion_timestamp_seconds`
+- `snapshot_worker_last_job_success_timestamp_seconds`
+- `snapshot_worker_chain_last_success_timestamp_seconds`
 - `snapshot_worker_wallets_processed_total`
 - `snapshot_worker_balance_snapshots_written_total`
 - `snapshot_scheduler_jobs_created_total`
+- `snapshot_jobs_enqueued_total`
+- `snapshot_jobs_skipped_total`
+
+All metric labels are deliberately low-cardinality. Wallet addresses, user IDs,
+wallet IDs, job IDs, RPC URLs, and error messages must not be used as labels.
 
 ## Tests And Quality
 
@@ -333,7 +350,6 @@ processing.
 
 ## Current Limits
 
-- ERC-20 token collection is not implemented yet.
 - Exchange wallets are not implemented yet.
 - User-defined chains and token contracts are not implemented yet.
 - Web, worker, and scheduler are not split into separate runtime processes yet.
