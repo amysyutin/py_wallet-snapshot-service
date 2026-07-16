@@ -2,8 +2,9 @@
 
 FastAPI microservice that creates and processes wallet snapshot jobs for `py_wallet`.
 It reads active users and wallets from the shared PostgreSQL database, collects EVM
-native balances through RPC, includes manual wallet balances, writes normalized
-snapshot rows back to PostgreSQL, and exposes operational metrics for Prometheus.
+native and configured ERC-20 balances through RPC, includes manual wallet balances,
+writes normalized snapshot rows back to PostgreSQL, and exposes operational metrics
+for Prometheus.
 
 Prometheus is used only for telemetry. Portfolio data is business data and must be
 read from PostgreSQL by `py_wallet`.
@@ -22,7 +23,11 @@ Prometheus        -> /metrics
 - Claims pending jobs with PostgreSQL row locking via `FOR UPDATE SKIP LOCKED`.
 - Reads `py_wallet`-owned tables: `users`, `wallet_groups`, `wallets`, `assets`, `manual_balances`.
 - Owns snapshot tables: `snapshot_runs`, `wallet_snapshots`, `chain_snapshots`, `snapshot_balance_snapshots`.
-- Collects EVM native balances for `mainnet`, `base`, `arbitrum`, `bnb`, and `linea`.
+- Collects EVM native and USDC-family balances for `mainnet`, `base`, `arbitrum`,
+  `bnb`, and `linea`.
+- Distinguishes native USDC, bridged `USDC.e`/`USDbC`, and Binance-Peg USDC.
+- Validates RPC chain IDs at startup and supports comma-separated RPC failover with
+  cooldown-based circuit breaking.
 - Processes manual wallets without RPC calls.
 - Uses CoinGecko for prices with local fallback prices for common symbols.
 - Supports partial success at job, wallet, and chain level.
@@ -153,10 +158,17 @@ Debug and external providers:
 - `LINEA_RPC_URL`
 - `CHAIN_TIMEOUT_SECONDS`
 - `ETHEREUM_TIMEOUT_SECONDS`
+- `RPC_COOLDOWN_SECONDS`
+- `RPC_STARTUP_CHECK_ENABLED`
 - `COINGECKO_BASE_URL`
 - `PRICE_CACHE_TTL_SECONDS`
 
 See `.env.example` for defaults.
+
+Each `*_RPC_URL` accepts a comma-separated list ordered as primary, backup, and
+emergency endpoint. Failed endpoints are removed from rotation for
+`RPC_COOLDOWN_SECONDS`; startup checks verify that every endpoint reports the
+expected chain ID.
 
 For local mainnet-only debugging, set:
 
@@ -235,6 +247,8 @@ Internal job endpoints require `X-Internal-Token`.
 
 The scheduler creates `scheduled/all/pending` jobs for active users who have active
 wallets. It skips users that already have a scheduled pending or running job.
+Scheduler and worker tick failures are logged and retried on the next interval so a
+temporary database or provider error cannot silently stop background processing.
 
 The worker loop:
 

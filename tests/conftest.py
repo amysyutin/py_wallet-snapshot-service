@@ -13,6 +13,7 @@ os.environ.setdefault("SNAPSHOT_WORKER_ENABLED", "false")
 os.environ.setdefault("SNAPSHOT_SCHEDULER_ENABLED", "false")
 os.environ.setdefault("SNAPSHOT_ENABLED_CHAINS", "mainnet,base,arbitrum,bnb,linea")
 os.environ.setdefault("INTERNAL_API_TOKEN", "test-token")
+os.environ.setdefault("RPC_STARTUP_CHECK_ENABLED", "false")
 
 from app.config import get_settings
 from app.db import Base, get_db
@@ -42,6 +43,7 @@ def client(monkeypatch, db_session: Session) -> Generator[TestClient, None, None
     monkeypatch.setenv("SNAPSHOT_SCHEDULER_ENABLED", "false")
     monkeypatch.setenv("SNAPSHOT_ENABLED_CHAINS", "mainnet,base,arbitrum,bnb,linea")
     monkeypatch.setenv("INTERNAL_API_TOKEN", "test-token")
+    monkeypatch.setenv("RPC_STARTUP_CHECK_ENABLED", "false")
     monkeypatch.setenv("DEBUG_ENDPOINTS_ENABLED", "true")
     get_settings.cache_clear()
 

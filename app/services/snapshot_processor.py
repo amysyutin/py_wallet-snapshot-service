@@ -40,7 +40,9 @@ class SnapshotProcessor:
         settings = get_settings()
         price_service = PriceService(settings)
         self.evm_collector = evm_collector or EvmCollector(
-            get_chain_configs(settings), price_service
+            get_chain_configs(settings),
+            price_service,
+            cooldown_seconds=settings.rpc_cooldown_seconds,
         )
         self.manual_collector = manual_collector or ManualCollector(db, price_service)
         self.wallet_loader = WalletLoader(db)

@@ -13,6 +13,9 @@ class PriceService:
         "BTC": "bitcoin",
         "USDT": "tether",
         "USDC": "usd-coin",
+        "USDC.E": "usd-coin",
+        "USDBC": "usd-coin",
+        "BINANCE_PEG_USDC": "usd-coin",
     }
     dev_prices = {
         "ETH": Decimal("3000"),
@@ -20,6 +23,9 @@ class PriceService:
         "BTC": Decimal("65000"),
         "USDT": Decimal("1"),
         "USDC": Decimal("1"),
+        "USDC.E": Decimal("1"),
+        "USDBC": Decimal("1"),
+        "BINANCE_PEG_USDC": Decimal("1"),
     }
 
     def __init__(self, settings: Settings | None = None):
