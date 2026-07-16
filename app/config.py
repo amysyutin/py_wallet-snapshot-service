@@ -26,6 +26,8 @@ class Settings(BaseSettings):
 
     chain_timeout_seconds: int = 8
     ethereum_timeout_seconds: int = 10
+    rpc_cooldown_seconds: int = 60
+    rpc_startup_check_enabled: bool = True
 
     ethereum_rpc_url: str = ""
     base_rpc_url: str = ""

@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from app.config import get_settings
 from app.enums import AssetType, ChainStatus, JobStatus, ScopeType, TriggerType
-from app.models.snapshots import SnapshotRun
+from app.models.snapshots import BalanceSnapshot, SnapshotRun
 from app.services.evm_collector import AssetBalance, ChainCollectionResult
 from app.services.snapshot_processor import SnapshotProcessor
 from tests.conftest import seed_user_wallet
@@ -46,6 +46,24 @@ class FakeEvmCollector:
             error_type="timeout",
             error_message="timeout",
         )
+
+
+class TokenEvmCollector(FakeEvmCollector):
+    def collect_chain(self, address, chain):
+        result = super().collect_chain(address, chain)
+        result.balances.append(
+            AssetBalance(
+                symbol="USDC",
+                asset_address="0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+                asset_type=AssetType.ERC20.value,
+                amount=Decimal("12.5"),
+                price_usd=Decimal("1"),
+                value_usd=Decimal("12.5"),
+                price_source="test",
+            )
+        )
+        result.total_usd += Decimal("12.5")
+        return result
 
 
 def make_job(db_session):
@@ -96,6 +114,26 @@ def test_all_successful_chains_succeed_job(db_session):
     status = SnapshotProcessor(db_session, evm_collector=FakeEvmCollector({})).process(job)
 
     assert status == JobStatus.SUCCESS.value
+
+
+def test_erc20_balances_are_persisted(db_session, monkeypatch):
+    monkeypatch.setenv("SNAPSHOT_ENABLED_CHAINS", "base")
+    get_settings.cache_clear()
+    job = make_job(db_session)
+
+    try:
+        status = SnapshotProcessor(
+            db_session,
+            evm_collector=TokenEvmCollector({}),
+        ).process(job)
+    finally:
+        get_settings.cache_clear()
+
+    token = db_session.query(BalanceSnapshot).filter_by(asset_symbol="USDC").one()
+    assert status == JobStatus.SUCCESS.value
+    assert token.asset_type == AssetType.ERC20.value
+    assert token.amount == Decimal("12.5")
+    assert token.value_usd == Decimal("12.5")
 
 
 def test_enabled_chains_limits_evm_collection(db_session, monkeypatch):

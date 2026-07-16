@@ -32,6 +32,24 @@ rpc_latency_seconds = Histogram(
     ["chain"],
     registry=registry,
 )
+rpc_attempts_total = Counter(
+    "snapshot_worker_rpc_attempts_total",
+    "RPC endpoint attempts.",
+    ["chain", "provider", "outcome", "error_type"],
+    registry=registry,
+)
+rpc_failovers_total = Counter(
+    "snapshot_worker_rpc_failovers_total",
+    "RPC failovers to another configured endpoint.",
+    ["chain"],
+    registry=registry,
+)
+rpc_circuit_open_total = Counter(
+    "snapshot_worker_rpc_circuit_open_total",
+    "RPC endpoints temporarily removed from rotation.",
+    ["chain", "provider"],
+    registry=registry,
+)
 pending_jobs = Gauge("snapshot_worker_pending_jobs", "Pending snapshot jobs.", registry=registry)
 running_jobs = Gauge("snapshot_worker_running_jobs", "Running snapshot jobs.", registry=registry)
 last_success_timestamp = Gauge(

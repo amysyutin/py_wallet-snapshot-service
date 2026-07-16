@@ -22,8 +22,11 @@ class SchedulerLoop:
     async def run(self) -> None:
         settings = get_settings()
         while not self._stop.is_set():
-            with SessionLocal() as db:
-                create_scheduled_jobs(db)
+            try:
+                with SessionLocal() as db:
+                    create_scheduled_jobs(db)
+            except Exception:
+                logger.exception("scheduled_snapshot_tick_failed")
             await asyncio.sleep(settings.snapshot_interval_seconds)
 
     def stop(self) -> None:

@@ -22,21 +22,26 @@ class WorkerLoop:
     async def run(self) -> None:
         settings = get_settings()
         while not self._stop.is_set():
-            with SessionLocal() as db:
-                self._refresh_job_gauges(db)
-                job = claim_next_pending_job(db)
-                if job is None:
-                    await asyncio.sleep(settings.snapshot_worker_poll_seconds)
-                    continue
-                try:
-                    SnapshotProcessor(db).process(job)
-                except Exception as exc:
-                    logger.exception(
-                        "snapshot_job_failed", extra={"job_id": job.id, "error_type": "unknown"}
-                    )
-                    job.status = JobStatus.FAILED.value
-                    job.error_message = str(exc)[:500]
-                    db.commit()
+            try:
+                with SessionLocal() as db:
+                    self._refresh_job_gauges(db)
+                    job = claim_next_pending_job(db)
+                    if job is None:
+                        await asyncio.sleep(settings.snapshot_worker_poll_seconds)
+                        continue
+                    try:
+                        SnapshotProcessor(db).process(job)
+                    except Exception as exc:
+                        logger.exception(
+                            "snapshot_job_failed",
+                            extra={"job_id": job.id, "error_type": "unknown"},
+                        )
+                        job.status = JobStatus.FAILED.value
+                        job.error_message = str(exc)[:500]
+                        db.commit()
+            except Exception:
+                logger.exception("snapshot_worker_tick_failed")
+                await asyncio.sleep(settings.snapshot_worker_poll_seconds)
 
     def stop(self) -> None:
         self._stop.set()
