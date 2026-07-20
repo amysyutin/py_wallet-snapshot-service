@@ -10,6 +10,16 @@ def test_internal_token_required(client):
     assert response.status_code == 401
 
 
+def test_invalid_internal_token_rejected(client):
+    response = client.post(
+        "/internal/snapshot-jobs",
+        headers={"X-Internal-Token": "wrong-token"},
+        json={"user_id": 1, "trigger_type": "manual", "scope_type": "all"},
+    )
+
+    assert response.status_code == 401
+
+
 def test_can_create_all_job(client):
     enqueued_before = jobs_enqueued_total.labels("api", "manual", "all")._value.get()
     response = client.post(
