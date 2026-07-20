@@ -138,6 +138,17 @@ Core variables:
 - `SNAPSHOT_SERVICE_HOST`
 - `SNAPSHOT_SERVICE_PORT`
 
+`INTERNAL_API_TOKEN` is required in every environment. Generate it instead of
+using the example placeholder:
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+In `staging` and `production`, startup rejects empty, known-placeholder, and
+shorter-than-32-character tokens. Configure the same generated value in
+`py_wallet` as `SNAPSHOT_INTERNAL_API_TOKEN`.
+
 Background processing:
 
 - `SNAPSHOT_WORKER_ENABLED`
@@ -208,7 +219,7 @@ Debug-check native EVM balance using the same collector path as snapshot process
 
 ```bash
 curl "http://localhost:8001/debug/evm-balance?chain=mainnet&address=0x74100A58eC575F7c9E127B464cAf4609e36ee0BB" \
-  -H "X-Internal-Token: change-me"
+  -H "X-Internal-Token: ${INTERNAL_API_TOKEN}"
 ```
 
 Create a snapshot job:
@@ -216,7 +227,7 @@ Create a snapshot job:
 ```bash
 curl -X POST http://localhost:8001/internal/snapshot-jobs \
   -H 'Content-Type: application/json' \
-  -H 'X-Internal-Token: change-me' \
+  -H "X-Internal-Token: ${INTERNAL_API_TOKEN}" \
   -d '{"user_id":1,"trigger_type":"manual","scope_type":"all"}'
 ```
 
@@ -231,14 +242,14 @@ Retry failed chains from a parent job:
 
 ```bash
 curl -X POST http://localhost:8001/internal/snapshot-jobs/123/retry-failed \
-  -H 'X-Internal-Token: change-me'
+  -H "X-Internal-Token: ${INTERNAL_API_TOKEN}"
 ```
 
 Get job status for backend polling:
 
 ```bash
 curl http://localhost:8001/internal/snapshot-jobs/123 \
-  -H 'X-Internal-Token: change-me'
+  -H "X-Internal-Token: ${INTERNAL_API_TOKEN}"
 ```
 
 Internal job endpoints require `X-Internal-Token`.
