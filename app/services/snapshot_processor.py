@@ -41,7 +41,7 @@ class SnapshotProcessor:
     ):
         self.db = db
         settings = get_settings()
-        price_service = PriceService(settings)
+        price_service = getattr(evm_collector, "price_service", None) or PriceService(settings)
         self.evm_collector = evm_collector or EvmCollector(
             get_chain_configs(settings),
             price_service,

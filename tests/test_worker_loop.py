@@ -99,3 +99,31 @@ async def test_worker_counts_database_tick_errors():
         await loop.run()
 
     assert database_errors_total.labels("worker")._value.get() == errors_before + 1
+
+
+@pytest.mark.asyncio
+async def test_worker_reuses_one_evm_collector_across_jobs():
+    collector = MagicMock()
+    loop = WorkerLoop(evm_collector=collector)
+    session_context = MagicMock()
+    session_context.__enter__.return_value = object()
+    jobs = [MagicMock(id=1), MagicMock(id=2)]
+
+    def claim_job(_db):
+        if jobs:
+            return jobs.pop(0)
+        loop.stop()
+        return None
+
+    with (
+        patch("app.worker.loop.SessionLocal", return_value=session_context),
+        patch.object(loop, "_refresh_job_gauges"),
+        patch("app.worker.loop.claim_next_pending_job", side_effect=claim_job),
+        patch("app.worker.loop.asyncio.sleep", new_callable=AsyncMock),
+        patch("app.worker.loop.SnapshotProcessor") as processor,
+    ):
+        await loop.run()
+
+    assert processor.call_count == 2
+    assert all(call.kwargs["evm_collector"] is collector for call in processor.call_args_list)
+    collector.close.assert_called_once_with()

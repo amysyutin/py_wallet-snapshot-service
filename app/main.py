@@ -28,7 +28,10 @@ def _check_rpc_configuration() -> dict[str, list[dict[str, str | int]]]:
         PriceService(settings),
         cooldown_seconds=settings.rpc_cooldown_seconds,
     )
-    return collector.health_check()
+    try:
+        return collector.health_check()
+    finally:
+        collector.close()
 
 
 @asynccontextmanager

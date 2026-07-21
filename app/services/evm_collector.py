@@ -1,5 +1,7 @@
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
+from email.utils import parsedate_to_datetime
 from time import monotonic, perf_counter
 
 import httpx
@@ -34,9 +36,15 @@ class ChainCollectionResult:
 
 
 class RpcAttemptError(RuntimeError):
-    def __init__(self, error_type: str, message: str):
+    def __init__(
+        self,
+        error_type: str,
+        message: str,
+        retry_after_seconds: int | None = None,
+    ):
         super().__init__(message)
         self.error_type = error_type
+        self.retry_after_seconds = retry_after_seconds
 
 
 class EvmCollector:
@@ -50,6 +58,21 @@ class EvmCollector:
         self.price_service = price_service
         self.cooldown_seconds = cooldown_seconds
         self._unavailable_until: dict[str, float] = {}
+        self._clients: dict[int, httpx.Client] = {}
+        self._validated_chain_ids: set[tuple[str, int]] = set()
+        self._token_decimals: dict[tuple[str, str], int] = {}
+
+    def close(self) -> None:
+        for client in self._clients.values():
+            client.close()
+        self._clients.clear()
+
+    def _get_client(self, timeout_seconds: int) -> httpx.Client:
+        client = self._clients.get(timeout_seconds)
+        if client is None:
+            client = httpx.Client(timeout=timeout_seconds)
+            self._clients[timeout_seconds] = client
+        return client
 
     def collect_chain(self, address: str, chain: str) -> ChainCollectionResult:
         if not self._is_valid_address(address):
@@ -71,10 +94,14 @@ class EvmCollector:
             if self._unavailable_until.get(url, 0) <= monotonic()
         ]
         if not available:
+            retry_in = max(
+                1,
+                int(min(self._unavailable_until[url] for url in config.rpc_urls) - monotonic()),
+            )
             return self._failed(
                 chain,
-                ErrorType.RPC_ERROR.value,
-                "all RPC endpoints are cooling down",
+                ErrorType.CIRCUIT_OPEN.value,
+                f"all RPC endpoints are cooling down; retry in {retry_in}s",
             )
 
         last_error: RpcAttemptError | None = None
@@ -84,7 +111,11 @@ class EvmCollector:
                 result = self._collect_from_endpoint(address, config, rpc_url)
             except RpcAttemptError as exc:
                 last_error = exc
-                self._unavailable_until[rpc_url] = monotonic() + self.cooldown_seconds
+                cooldown = min(
+                    3600,
+                    max(1, exc.retry_after_seconds or self.cooldown_seconds),
+                )
+                self._unavailable_until[rpc_url] = monotonic() + cooldown
                 rpc_attempts_total.labels(
                     chain,
                     str(provider_index),
@@ -110,10 +141,13 @@ class EvmCollector:
             chain_results: list[dict[str, str | int]] = []
             for provider_index, rpc_url in enumerate(config.rpc_urls):
                 try:
-                    with httpx.Client(timeout=config.timeout_seconds) as client:
-                        self._verify_chain_id(client, rpc_url, config)
+                    client = self._get_client(config.timeout_seconds)
+                    self._verify_chain_id(client, rpc_url, config)
                     chain_results.append(
-                        {"provider": provider_index, "status": ChainStatus.SUCCESS.value}
+                        {
+                            "provider": provider_index,
+                            "status": ChainStatus.SUCCESS.value,
+                        }
                     )
                 except RpcAttemptError as exc:
                     chain_results.append(
@@ -132,28 +166,27 @@ class EvmCollector:
         config: ChainConfig,
         rpc_url: str,
     ) -> ChainCollectionResult:
-        with httpx.Client(timeout=config.timeout_seconds) as client:
-            self._verify_chain_id(client, rpc_url, config)
-            wei = self._rpc_int(client, rpc_url, "eth_getBalance", [address, "latest"])
-            native_amount = Decimal(wei) / Decimal(10**18)
-            native_price, native_source = self.price_service.get_usd_price(config.native_symbol)
-            native_value = (
-                native_amount * native_price if native_price is not None else Decimal("0")
+        client = self._get_client(config.timeout_seconds)
+        self._verify_chain_id(client, rpc_url, config)
+        wei = self._rpc_int(client, rpc_url, "eth_getBalance", [address, "latest"])
+        native_amount = Decimal(wei) / Decimal(10**18)
+        native_price, native_source = self.price_service.get_usd_price(config.native_symbol)
+        native_value = native_amount * native_price if native_price is not None else Decimal("0")
+        balances = [
+            AssetBalance(
+                symbol=config.native_symbol,
+                asset_address=None,
+                asset_type=AssetType.NATIVE.value,
+                amount=native_amount,
+                price_usd=native_price,
+                value_usd=native_value,
+                price_source=native_source,
             )
-            balances = [
-                AssetBalance(
-                    symbol=config.native_symbol,
-                    asset_address=None,
-                    asset_type=AssetType.NATIVE.value,
-                    amount=native_amount,
-                    price_usd=native_price,
-                    value_usd=native_value,
-                    price_source=native_source,
-                )
-            ]
-            balances.extend(
-                self._collect_token(client, rpc_url, address, token) for token in config.tokens
-            )
+        ]
+        balances.extend(
+            self._collect_token(client, rpc_url, address, token, config.name)
+            for token in config.tokens
+        )
 
         return ChainCollectionResult(
             chain=config.name,
@@ -173,13 +206,18 @@ class EvmCollector:
         rpc_url: str,
         wallet_address: str,
         token: TokenConfig,
+        chain: str,
     ) -> AssetBalance:
-        decimals = self._rpc_int(
-            client,
-            rpc_url,
-            "eth_call",
-            [{"to": token.address, "data": "0x313ce567"}, "latest"],
-        )
+        decimals_key = (chain, token.address.lower())
+        decimals = self._token_decimals.get(decimals_key)
+        if decimals is None:
+            decimals = self._rpc_int(
+                client,
+                rpc_url,
+                "eth_call",
+                [{"to": token.address, "data": "0x313ce567"}, "latest"],
+            )
+            self._token_decimals[decimals_key] = decimals
         padded_address = wallet_address.lower().removeprefix("0x").rjust(64, "0")
         raw_amount = self._rpc_int(
             client,
@@ -209,12 +247,16 @@ class EvmCollector:
         rpc_url: str,
         config: ChainConfig,
     ) -> None:
+        cache_key = (rpc_url, config.expected_chain_id)
+        if cache_key in self._validated_chain_ids:
+            return
         chain_id = self._rpc_int(client, rpc_url, "eth_chainId", [])
         if chain_id != config.expected_chain_id:
             raise RpcAttemptError(
                 ErrorType.BAD_CONFIG.value,
                 f"expected chain id {config.expected_chain_id}, got {chain_id}",
             )
+        self._validated_chain_ids.add(cache_key)
 
     def _rpc_int(
         self,
@@ -248,6 +290,7 @@ class EvmCollector:
                 raise RpcAttemptError(
                     ErrorType.RATE_LIMIT.value,
                     "RPC rate limit exceeded",
+                    retry_after_seconds=EvmCollector._retry_after_seconds(response),
                 )
             response.raise_for_status()
             payload = response.json()
@@ -281,6 +324,22 @@ class EvmCollector:
                 f"RPC response for {method} has no result",
             )
         return result
+
+    @staticmethod
+    def _retry_after_seconds(response: httpx.Response) -> int | None:
+        value = response.headers.get("retry-after")
+        if not value:
+            return None
+        try:
+            return max(1, int(value))
+        except ValueError:
+            try:
+                retry_at = parsedate_to_datetime(value)
+                if retry_at.tzinfo is None:
+                    retry_at = retry_at.replace(tzinfo=UTC)
+                return max(1, int((retry_at - datetime.now(UTC)).total_seconds()))
+            except (TypeError, ValueError, OverflowError):
+                return None
 
     @staticmethod
     def _is_valid_address(address: str | None) -> bool:
