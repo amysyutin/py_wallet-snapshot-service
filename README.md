@@ -58,11 +58,14 @@ Requirements:
 Install dependencies:
 
 ```bash
-python3.12 -m venv .venv
+uv sync --frozen --extra dev
 source .venv/bin/activate
-pip install -e ".[dev]"
 cp .env.example .env
 ```
+
+`uv.lock` is committed and is the dependency source of truth for local, CI,
+and container environments. Run `uv lock --check` to verify that it still
+matches `pyproject.toml`; intentionally update it with `uv lock`.
 
 Set `DATABASE_URL` in `.env`, then run snapshot-service migrations:
 
@@ -346,13 +349,14 @@ wallet IDs, job IDs, RPC URLs, and error messages must not be used as labels.
 Run tests:
 
 ```bash
-pytest
+.venv/bin/python -m pytest
 ```
 
 Run linting:
 
 ```bash
-ruff check .
+.venv/bin/ruff check .
+.venv/bin/ruff format --check .
 ```
 
 The test suite uses SQLite fixtures and covers health/API behavior, job creation,
