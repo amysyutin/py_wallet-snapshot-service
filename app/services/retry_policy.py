@@ -3,6 +3,7 @@ from app.enums import ErrorType
 TEMPORARY_ERRORS = {
     ErrorType.TIMEOUT.value,
     ErrorType.RATE_LIMIT.value,
+    ErrorType.CIRCUIT_OPEN.value,
     ErrorType.CONNECTION_ERROR.value,
     ErrorType.RPC_ERROR.value,
 }

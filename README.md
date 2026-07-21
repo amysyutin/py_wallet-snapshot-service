@@ -182,7 +182,9 @@ See `.env.example` for defaults.
 Each `*_RPC_URL` accepts a comma-separated list ordered as primary, backup, and
 emergency endpoint. Failed endpoints are removed from rotation for
 `RPC_COOLDOWN_SECONDS`; startup checks verify that every endpoint reports the
-expected chain ID.
+expected chain ID. HTTP 429 responses honor `Retry-After`, and the worker keeps
+provider cooldown state between jobs. Chain IDs and token decimals are cached to
+avoid repeating invariant RPC calls for every wallet.
 
 For local mainnet-only debugging, set:
 

@@ -18,6 +18,9 @@ from app.metrics import (
     worker_heartbeat_timestamp_seconds,
 )
 from app.models.snapshots import SnapshotRun
+from app.services.chain_config import get_chain_configs
+from app.services.evm_collector import EvmCollector
+from app.services.price_service import PriceService
 from app.services.snapshot_processor import SnapshotProcessor
 from app.worker.claim import claim_next_pending_job
 
@@ -25,39 +28,48 @@ logger = logging.getLogger(__name__)
 
 
 class WorkerLoop:
-    def __init__(self):
+    def __init__(self, evm_collector: EvmCollector | None = None):
         self._stop = asyncio.Event()
+        settings = get_settings()
+        self.evm_collector = evm_collector or EvmCollector(
+            get_chain_configs(settings),
+            PriceService(settings),
+            cooldown_seconds=settings.rpc_cooldown_seconds,
+        )
 
     async def run(self) -> None:
         settings = get_settings()
-        while not self._stop.is_set():
-            worker_heartbeat_timestamp_seconds.set(datetime.now(UTC).timestamp())
-            try:
-                with SessionLocal() as db:
-                    self._refresh_job_gauges(db)
-                    job = claim_next_pending_job(db)
-                    if job is None:
-                        await asyncio.sleep(settings.snapshot_worker_poll_seconds)
-                        continue
-                    try:
-                        SnapshotProcessor(db).process(job)
-                    except Exception as exc:
-                        logger.exception(
-                            "snapshot_job_failed",
-                            extra={"job_id": job.id, "error_type": "unknown"},
-                        )
-                        job.status = JobStatus.FAILED.value
-                        job.error_message = str(exc)[:500]
-                        db.commit()
-            except SQLAlchemyError:
-                database_errors_total.labels("worker").inc()
-                background_tick_errors_total.labels("worker").inc()
-                logger.exception("snapshot_worker_database_tick_failed")
-                await asyncio.sleep(settings.snapshot_worker_poll_seconds)
-            except Exception:
-                background_tick_errors_total.labels("worker").inc()
-                logger.exception("snapshot_worker_tick_failed")
-                await asyncio.sleep(settings.snapshot_worker_poll_seconds)
+        try:
+            while not self._stop.is_set():
+                worker_heartbeat_timestamp_seconds.set(datetime.now(UTC).timestamp())
+                try:
+                    with SessionLocal() as db:
+                        self._refresh_job_gauges(db)
+                        job = claim_next_pending_job(db)
+                        if job is None:
+                            await asyncio.sleep(settings.snapshot_worker_poll_seconds)
+                            continue
+                        try:
+                            SnapshotProcessor(db, evm_collector=self.evm_collector).process(job)
+                        except Exception as exc:
+                            logger.exception(
+                                "snapshot_job_failed",
+                                extra={"job_id": job.id, "error_type": "unknown"},
+                            )
+                            job.status = JobStatus.FAILED.value
+                            job.error_message = str(exc)[:500]
+                            db.commit()
+                except SQLAlchemyError:
+                    database_errors_total.labels("worker").inc()
+                    background_tick_errors_total.labels("worker").inc()
+                    logger.exception("snapshot_worker_database_tick_failed")
+                    await asyncio.sleep(settings.snapshot_worker_poll_seconds)
+                except Exception:
+                    background_tick_errors_total.labels("worker").inc()
+                    logger.exception("snapshot_worker_tick_failed")
+                    await asyncio.sleep(settings.snapshot_worker_poll_seconds)
+        finally:
+            self.evm_collector.close()
 
     def stop(self) -> None:
         self._stop.set()

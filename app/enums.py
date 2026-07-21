@@ -51,6 +51,7 @@ class AssetType(StrEnum):
 class ErrorType(StrEnum):
     TIMEOUT = "timeout"
     RATE_LIMIT = "rate_limit"
+    CIRCUIT_OPEN = "circuit_open"
     RPC_ERROR = "rpc_error"
     CONNECTION_ERROR = "connection_error"
     INVALID_ADDRESS = "invalid_address"
