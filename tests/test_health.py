@@ -4,6 +4,8 @@ def test_health_returns_ok(client):
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
     assert response.json()["database"] == "ok"
+    assert response.json()["version"] == "0.1.0"
+    assert response.json()["build_sha"] == "unknown"
 
 
 def test_metrics_exposes_snapshot_metrics(client):

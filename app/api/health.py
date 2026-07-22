@@ -16,6 +16,8 @@ def health(db: Session = Depends(get_db)) -> HealthResponse:
     return HealthResponse(
         status="ok",
         service=settings.app_name,
+        version=settings.app_version,
+        build_sha=settings.build_sha,
         environment=settings.environment,
         database="ok",
     )
