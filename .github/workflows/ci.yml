@@ -58,6 +58,9 @@ jobs:
          uv lock --check
          uv sync --frozen --extra dev
 
+     - name: Validate release version
+       run: .venv/bin/python -m pytest tests/test_release_version.py -q
+
      - name: Lint
        run: .venv/bin/ruff check .
 
