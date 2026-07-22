@@ -123,15 +123,41 @@ jobs:
   
       - name: Commit and push infrastructure update
         working-directory: infra
+        env:
+          GH_TOKEN: ${{ secrets.INFRA_REPO_TOKEN }}
+          DEPLOY_BRANCH: deploy/py-wallet-snapshot-service/${{ github.sha }}-${{ github.run_attempt }}
         run: |
           git config user.name "py-wallet deploybot"
           git config user.email "deploybot@users.noreply.github.com"
+          git switch -c "${DEPLOY_BRANCH}"
           git add manifests/snapshot-service/kustomization.yaml
   
           if git diff --cached --quiet; then
             echo "Image tag is already up to date"
             exit 0
           fi
-  
+
           git commit -m "deploy(snapshot): bump image to ${{ github.sha }}"
-          git push origin main  
+          git push --set-upstream origin "${DEPLOY_BRANCH}"
+          pr_url=$(gh pr create \
+            --repo amysyutin/py_wallet-infra \
+            --base main \
+            --head "${DEPLOY_BRANCH}" \
+            --title "deploy(snapshot): bump image to ${{ github.sha }}" \
+            --body "Automated image bump from amysyutin/py_wallet-snapshot-service@${{ github.sha }}.") || {
+              git push origin --delete "${DEPLOY_BRANCH}"
+              exit 1
+            }
+          echo "Opened ${pr_url}"
+          gh pr list \
+            --repo amysyutin/py_wallet-infra \
+            --state open \
+            --base main \
+            --json number,headRefName \
+            --jq ".[] | select((.headRefName | startswith(\"deploy/py-wallet-snapshot-service/\")) and .headRefName != \"${DEPLOY_BRANCH}\") | .number" \
+          | while read -r pr_number; do
+              gh pr close \
+                --repo amysyutin/py_wallet-infra \
+                "${pr_number}" \
+                --comment "Superseded by ${pr_url}."
+            done

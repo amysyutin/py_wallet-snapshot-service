@@ -21,6 +21,7 @@ Prometheus        -> /metrics
 - Creates manual, scheduled, and retry jobs.
 - Runs the FastAPI app, worker loop, and scheduler loop in one process.
 - Claims pending jobs with PostgreSQL row locking via `FOR UPDATE SKIP LOCKED`.
+- Uses renewable worker leases and fails abandoned jobs so scheduling cannot remain blocked.
 - Reads `py_wallet`-owned tables: `users`, `wallet_groups`, `wallets`, `assets`, `manual_balances`.
 - Owns snapshot tables: `snapshot_runs`, `wallet_snapshots`, `chain_snapshots`, `snapshot_balance_snapshots`.
 - Collects EVM native and USDC-family balances for `mainnet`, `base`, `arbitrum`,
@@ -158,9 +159,16 @@ Background processing:
 - `SNAPSHOT_SCHEDULER_ENABLED`
 - `SNAPSHOT_INTERVAL_SECONDS`
 - `SNAPSHOT_WORKER_POLL_SECONDS`
+- `SNAPSHOT_JOB_LEASE_SECONDS`
 - `SNAPSHOT_ENABLED_CHAINS`
 - `MAX_RETRY_ATTEMPTS`
 - `RETRY_BACKOFF_SECONDS`
+
+Workers renew a job lease before and after each wallet. If a worker disappears,
+another worker marks the abandoned run failed after
+`SNAPSHOT_JOB_LEASE_SECONDS`; the scheduler can then enqueue the user's next
+scheduled run. Choose a lease longer than the worst-case processing time for one
+wallet across all enabled chains.
 
 Debug and external providers:
 

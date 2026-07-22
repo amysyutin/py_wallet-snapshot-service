@@ -40,3 +40,10 @@ def test_validation_error_does_not_echo_token():
         make_settings(environment="production", internal_api_token=token)
 
     assert token not in str(exc_info.value)
+
+
+def test_snapshot_job_lease_has_safe_bounds():
+    assert make_settings().snapshot_job_lease_seconds == 1800
+
+    with pytest.raises(ValidationError):
+        make_settings(snapshot_job_lease_seconds=59)

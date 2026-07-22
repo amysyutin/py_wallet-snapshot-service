@@ -28,6 +28,7 @@ from app.services.evm_collector import ChainCollectionResult, EvmCollector
 from app.services.manual_collector import ManualCollector
 from app.services.price_service import PriceService
 from app.services.wallet_loader import WalletLoader
+from app.worker.claim import renew_job_lease
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +39,8 @@ class SnapshotProcessor:
         db: Session,
         evm_collector: EvmCollector | None = None,
         manual_collector: ManualCollector | None = None,
+        worker_id: str | None = None,
+        lease_seconds: int | None = None,
     ):
         self.db = db
         settings = get_settings()
@@ -50,6 +53,8 @@ class SnapshotProcessor:
         self.manual_collector = manual_collector or ManualCollector(db, price_service)
         self.wallet_loader = WalletLoader(db)
         self.enabled_chains = get_enabled_chains(settings)
+        self.worker_id = worker_id
+        self.lease_seconds = lease_seconds
 
     def process(self, job: SnapshotRun) -> str:
         started = perf_counter()
@@ -57,11 +62,13 @@ class SnapshotProcessor:
             "snapshot_job_started",
             extra=self._log_extra(job, status=JobStatus.RUNNING.value),
         )
+        self._renew_lease(job)
         wallets = self.wallet_loader.load_for_job(job)
         if not wallets:
             job.status = JobStatus.FAILED.value
             job.error_message = "no active wallets found for job scope"
             job.finished_at = datetime.now(UTC)
+            self._release_lease(job)
             self.db.commit()
             jobs_total.labels(job.status, job.trigger_type, job.scope_type).inc()
             last_job_completion_timestamp_seconds.labels(job.status, job.trigger_type).set(
@@ -72,7 +79,11 @@ class SnapshotProcessor:
             )
             return job.status
 
-        wallet_statuses = [self._process_wallet(job, wallet) for wallet in wallets]
+        wallet_statuses = []
+        for wallet in wallets:
+            self._renew_lease(job)
+            wallet_statuses.append(self._process_wallet(job, wallet))
+            self._renew_lease(job)
         if all(status == WalletSnapshotStatus.SUCCESS.value for status in wallet_statuses):
             job.status = JobStatus.SUCCESS.value
         elif any(
@@ -85,6 +96,7 @@ class SnapshotProcessor:
             job.status = JobStatus.FAILED.value
 
         job.finished_at = datetime.now(UTC)
+        self._release_lease(job)
         self.db.commit()
         last_job_completion_timestamp_seconds.labels(job.status, job.trigger_type).set(
             job.finished_at.timestamp()
@@ -100,6 +112,21 @@ class SnapshotProcessor:
         )
         logger.info("snapshot_job_finished", extra=self._log_extra(job, status=job.status))
         return job.status
+
+    def _renew_lease(self, job: SnapshotRun) -> None:
+        if self.worker_id is None or self.lease_seconds is None:
+            return
+        job.lease_expires_at = renew_job_lease(
+            self.db,
+            job_id=job.id,
+            worker_id=self.worker_id,
+            lease_seconds=self.lease_seconds,
+        )
+
+    @staticmethod
+    def _release_lease(job: SnapshotRun) -> None:
+        job.worker_id = None
+        job.lease_expires_at = None
 
     def _process_wallet(self, job: SnapshotRun, wallet: Wallet) -> str:
         started_at = datetime.now(UTC)
