@@ -97,6 +97,8 @@ jobs:
           context: .
           push: true
           tags: ghcr.io/${{ github.repository }}:${{ github.sha }}
+          build-args: |
+            BUILD_SHA=${{ github.sha }}
 
   bump-gitops:
     needs: build-and-push
@@ -109,7 +111,7 @@ jobs:
         with:
           repository: amysyutin/py_wallet-infra
           ref: main
-          token: ${{ secrets.INFRA_REPO_TOKEN }}
+          token: ${{ secrets.GITOPS_BOT_TOKEN }}
           path: infra
   
       - name: Set up Kustomize
@@ -121,9 +123,10 @@ jobs:
           kustomize edit set image \
             ghcr.io/amysyutin/py_wallet-snapshot-service=ghcr.io/${{ github.repository }}:${{ github.sha }}
   
-      - name: Commit and push deploy branch
+      - name: Commit, push, and open deploy PR
         working-directory: infra
         env:
+          GH_TOKEN: ${{ secrets.GITOPS_BOT_TOKEN }}
           DEPLOY_BRANCH: deploy/py-wallet-snapshot-service/${{ github.sha }}-${{ github.run_attempt }}
         run: |
           git config user.name "py-wallet deploybot"
@@ -138,3 +141,25 @@ jobs:
 
           git commit -m "deploy(snapshot): bump image to ${{ github.sha }}"
           git push --set-upstream origin "${DEPLOY_BRANCH}"
+          pr_url=$(gh pr create \
+            --repo amysyutin/py_wallet-infra \
+            --base main \
+            --head "${DEPLOY_BRANCH}" \
+            --title "deploy(snapshot): bump image to ${{ github.sha }}" \
+            --body "Automated image bump from amysyutin/py_wallet-snapshot-service@${{ github.sha }}.") || {
+              git push origin --delete "${DEPLOY_BRANCH}"
+              exit 1
+            }
+          echo "Opened ${pr_url}"
+          gh pr list \
+            --repo amysyutin/py_wallet-infra \
+            --state open \
+            --base main \
+            --json number,headRefName \
+            --jq ".[] | select((.headRefName | startswith(\"deploy/py-wallet-snapshot-service/\")) and .headRefName != \"${DEPLOY_BRANCH}\") | .number" \
+          | while read -r pr_number; do
+              gh pr close \
+                --repo amysyutin/py_wallet-infra \
+                "${pr_number}" \
+                --comment "Superseded by ${pr_url}."
+            done
