@@ -109,7 +109,7 @@ async def test_worker_reuses_one_evm_collector_across_jobs():
     session_context.__enter__.return_value = object()
     jobs = [MagicMock(id=1), MagicMock(id=2)]
 
-    def claim_job(_db):
+    def claim_job(_db, **_kwargs):
         if jobs:
             return jobs.pop(0)
         loop.stop()

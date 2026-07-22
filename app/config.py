@@ -36,6 +36,7 @@ class Settings(BaseSettings):
     snapshot_scheduler_enabled: bool = True
     snapshot_interval_seconds: int = 300
     snapshot_worker_poll_seconds: int = 5
+    snapshot_job_lease_seconds: int = Field(default=1800, ge=60, le=86400)
     snapshot_enabled_chains: str = "mainnet,base,arbitrum,bnb,linea"
     debug_endpoints_enabled: bool = True
 

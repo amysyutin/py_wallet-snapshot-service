@@ -59,6 +59,12 @@ rpc_circuit_open_total = Counter(
 )
 pending_jobs = Gauge("snapshot_worker_pending_jobs", "Pending snapshot jobs.", registry=registry)
 running_jobs = Gauge("snapshot_worker_running_jobs", "Running snapshot jobs.", registry=registry)
+stale_jobs_recovered_total = Counter(
+    "snapshot_worker_stale_jobs_recovered_total",
+    "Running jobs failed after their worker lease expired.",
+    ["lease_state"],
+    registry=registry,
+)
 oldest_pending_job_age_seconds = Gauge(
     "snapshot_worker_oldest_pending_job_age_seconds",
     "Age in seconds of the oldest pending snapshot job, or zero when the queue is empty.",

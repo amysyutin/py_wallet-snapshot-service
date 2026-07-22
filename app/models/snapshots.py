@@ -13,6 +13,7 @@ class SnapshotRun(Base):
     __table_args__ = (
         Index("ix_snapshot_runs_user_status_created", "user_id", "status", "created_at"),
         Index("ix_snapshot_runs_status_created", "status", "created_at"),
+        Index("ix_snapshot_runs_status_lease", "status", "lease_expires_at"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -29,6 +30,8 @@ class SnapshotRun(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     error_message: Mapped[str | None] = mapped_column(Text)
+    worker_id: Mapped[str | None] = mapped_column(String(64))
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     wallet_snapshots: Mapped[list["WalletSnapshot"]] = relationship(
         back_populates="snapshot_run", cascade="all, delete-orphan"

@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import logging
 from datetime import UTC, datetime
+from uuid import uuid4
 
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -22,7 +23,7 @@ from app.services.chain_config import get_chain_configs
 from app.services.evm_collector import EvmCollector
 from app.services.price_service import PriceService
 from app.services.snapshot_processor import SnapshotProcessor
-from app.worker.claim import claim_next_pending_job
+from app.worker.claim import JobLeaseLostError, claim_next_pending_job
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ logger = logging.getLogger(__name__)
 class WorkerLoop:
     def __init__(self, evm_collector: EvmCollector | None = None):
         self._stop = asyncio.Event()
+        self.worker_id = str(uuid4())
         settings = get_settings()
         self.evm_collector = evm_collector or EvmCollector(
             get_chain_configs(settings),
@@ -45,19 +47,36 @@ class WorkerLoop:
                 try:
                     with SessionLocal() as db:
                         self._refresh_job_gauges(db)
-                        job = claim_next_pending_job(db)
+                        job = claim_next_pending_job(
+                            db,
+                            worker_id=self.worker_id,
+                            lease_seconds=settings.snapshot_job_lease_seconds,
+                        )
                         if job is None:
                             await asyncio.sleep(settings.snapshot_worker_poll_seconds)
                             continue
                         try:
-                            SnapshotProcessor(db, evm_collector=self.evm_collector).process(job)
+                            SnapshotProcessor(
+                                db,
+                                evm_collector=self.evm_collector,
+                                worker_id=self.worker_id,
+                                lease_seconds=settings.snapshot_job_lease_seconds,
+                            ).process(job)
+                        except JobLeaseLostError:
+                            logger.warning(
+                                "snapshot_job_lease_lost",
+                                extra={"job_id": job.id, "worker_id": self.worker_id},
+                            )
                         except Exception as exc:
                             logger.exception(
                                 "snapshot_job_failed",
                                 extra={"job_id": job.id, "error_type": "unknown"},
                             )
                             job.status = JobStatus.FAILED.value
+                            job.finished_at = datetime.now(UTC)
                             job.error_message = str(exc)[:500]
+                            job.worker_id = None
+                            job.lease_expires_at = None
                             db.commit()
                 except SQLAlchemyError:
                     database_errors_total.labels("worker").inc()
