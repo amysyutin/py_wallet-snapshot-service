@@ -9,6 +9,10 @@ for Prometheus.
 Prometheus is used only for telemetry. Portfolio data is business data and must be
 read from PostgreSQL by `py_wallet`.
 
+The component version is stored in both `VERSION` and `pyproject.toml`. A
+`vX.Y.Z` tag must match both files; the release workflow promotes the tested
+SHA image to that release name and creates a GitHub Release.
+
 ```text
 py_wallet backend -> snapshot-service internal API
 snapshot-service  -> PostgreSQL + EVM RPC + price providers
