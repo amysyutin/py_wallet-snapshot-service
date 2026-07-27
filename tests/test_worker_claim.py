@@ -3,6 +3,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.enums import JobStatus, ScopeType, TriggerType
+from app.metrics import first_snapshot_outcome_total
 from app.models.snapshots import SnapshotRun
 from app.worker.claim import (
     JobLeaseLostError,
@@ -80,10 +81,14 @@ def test_double_claim_does_not_claim_same_job_twice(db_session):
 
 def test_expired_running_job_is_failed_and_unblocks_queue(db_session):
     now = datetime.now(UTC)
+    failed_metric = first_snapshot_outcome_total.labels("web", "failed")
+    failed_before = failed_metric._value.get()
     stale = SnapshotRun(
         user_id=1,
-        trigger_type=TriggerType.SCHEDULED.value,
-        scope_type=ScopeType.ALL.value,
+        trigger_type=TriggerType.AUTO.value,
+        scope_type=ScopeType.WALLET.value,
+        wallet_id=1,
+        activation_channel="web",
         status=JobStatus.RUNNING.value,
         created_at=now - timedelta(hours=1),
         started_at=now - timedelta(hours=1),
@@ -107,6 +112,7 @@ def test_expired_running_job_is_failed_and_unblocks_queue(db_session):
     assert stale.worker_id is None
     assert stale.lease_expires_at is None
     assert stale.error_message == "worker lease expired before job completion"
+    assert failed_metric._value.get() == failed_before + 1
 
 
 def test_legacy_running_job_without_lease_is_recovered(db_session):

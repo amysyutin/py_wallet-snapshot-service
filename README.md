@@ -9,6 +9,13 @@ for Prometheus.
 Prometheus is used only for telemetry. Portfolio data is business data and must be
 read from PostgreSQL by `py_wallet`.
 
+The worker also exposes
+`py_wallet_first_snapshot_outcome_total{channel,outcome}` for the auto job tied
+to a user's first wallet. `channel` is restricted to `web|telegram`; outcomes
+are `success|partial|failed`. The attribution is stored on `snapshot_runs` so it
+survives the asynchronous API-to-worker boundary. No user, wallet, address, or
+job identifier is exported as a Prometheus label.
+
 The component version is stored in both `VERSION` and `pyproject.toml`. A
 `vX.Y.Z` tag must match both files; the release workflow promotes the tested
 SHA image to that release name and creates a GitHub Release.

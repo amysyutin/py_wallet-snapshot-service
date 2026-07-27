@@ -13,6 +13,7 @@ from app.enums import JobStatus
 from app.metrics import (
     background_tick_errors_total,
     database_errors_total,
+    observe_first_snapshot_outcome,
     oldest_pending_job_age_seconds,
     pending_jobs,
     running_jobs,
@@ -78,6 +79,10 @@ class WorkerLoop:
                             job.worker_id = None
                             job.lease_expires_at = None
                             db.commit()
+                            observe_first_snapshot_outcome(
+                                channel=job.activation_channel,
+                                status=job.status,
+                            )
                 except SQLAlchemyError:
                     database_errors_total.labels("worker").inc()
                     background_tick_errors_total.labels("worker").inc()

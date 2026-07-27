@@ -22,6 +22,7 @@ class JobService:
             group_id=payload.group_id,
             wallet_id=payload.wallet_id,
             parent_run_id=None,
+            activation_channel=payload.activation_channel,
             status=JobStatus.PENDING.value,
             created_at=datetime.now(UTC),
         )

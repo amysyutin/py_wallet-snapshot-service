@@ -1,10 +1,13 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
+
 from app.config import get_settings
 from app.enums import AssetType, ChainStatus, JobStatus, ScopeType, TriggerType
 from app.metrics import (
     chain_last_success_timestamp_seconds,
+    first_snapshot_outcome_total,
     last_job_completion_timestamp_seconds,
     last_job_success_timestamp_seconds,
 )
@@ -122,6 +125,86 @@ def test_all_successful_chains_succeed_job(db_session):
     assert last_job_completion_timestamp_seconds.labels("success", "manual")._value.get() > 0
     assert last_job_success_timestamp_seconds.labels("manual", "all")._value.get() > 0
     assert chain_last_success_timestamp_seconds.labels("mainnet")._value.get() > 0
+
+
+@pytest.mark.parametrize(
+    ("statuses", "expected_status", "outcome"),
+    [
+        ({}, JobStatus.SUCCESS.value, "success"),
+        (
+            {"mainnet": ChainStatus.FAILED.value},
+            JobStatus.PARTIAL_SUCCESS.value,
+            "partial",
+        ),
+        (
+            {
+                chain: ChainStatus.FAILED.value
+                for chain in ["mainnet", "base", "arbitrum", "bnb", "linea"]
+            },
+            JobStatus.FAILED.value,
+            "failed",
+        ),
+    ],
+)
+def test_first_snapshot_metric_records_bounded_terminal_outcome(
+    db_session,
+    statuses,
+    expected_status,
+    outcome,
+):
+    seed_user_wallet(
+        db_session,
+        wallet_type="evm",
+        address="0x0000000000000000000000000000000000000001",
+    )
+    job = SnapshotRun(
+        user_id=1,
+        trigger_type=TriggerType.AUTO.value,
+        scope_type=ScopeType.WALLET.value,
+        wallet_id=1,
+        activation_channel="telegram",
+        status=JobStatus.RUNNING.value,
+        created_at=datetime.now(UTC),
+    )
+    db_session.add(job)
+    db_session.commit()
+    metric = first_snapshot_outcome_total.labels("telegram", outcome)
+    before = metric._value.get()
+
+    status = SnapshotProcessor(
+        db_session,
+        evm_collector=FakeEvmCollector(statuses),
+    ).process(job)
+
+    assert status == expected_status
+    assert metric._value.get() == before + 1
+
+
+def test_auto_snapshot_without_activation_channel_is_not_counted(db_session):
+    seed_user_wallet(
+        db_session,
+        wallet_type="evm",
+        address="0x0000000000000000000000000000000000000001",
+    )
+    job = SnapshotRun(
+        user_id=1,
+        trigger_type=TriggerType.AUTO.value,
+        scope_type=ScopeType.WALLET.value,
+        wallet_id=1,
+        status=JobStatus.RUNNING.value,
+        created_at=datetime.now(UTC),
+    )
+    db_session.add(job)
+    db_session.commit()
+    metric = first_snapshot_outcome_total.labels("web", "success")
+    before = metric._value.get()
+
+    SnapshotProcessor(
+        db_session,
+        evm_collector=FakeEvmCollector({}),
+    ).process(job)
+
+    assert metric._value.get() == before
 
 
 def test_erc20_balances_are_persisted(db_session, monkeypatch):

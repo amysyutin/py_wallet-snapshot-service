@@ -4,7 +4,7 @@ from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.enums import JobStatus
-from app.metrics import stale_jobs_recovered_total
+from app.metrics import observe_first_snapshot_outcome, stale_jobs_recovered_total
 from app.models.snapshots import SnapshotRun
 
 
@@ -48,6 +48,10 @@ def recover_stale_running_jobs(
         job.worker_id = None
         job.lease_expires_at = None
         stale_jobs_recovered_total.labels(lease_state).inc()
+        observe_first_snapshot_outcome(
+            channel=job.activation_channel,
+            status=job.status,
+        )
     return len(stale_jobs)
 
 

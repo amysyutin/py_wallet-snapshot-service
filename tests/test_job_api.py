@@ -1,4 +1,5 @@
 from app.metrics import jobs_enqueued_total
+from app.models.snapshots import SnapshotRun
 
 
 def test_internal_token_required(client):
@@ -69,6 +70,51 @@ def test_can_create_wallet_job(client):
     )
 
     assert response.status_code == 200
+
+
+def test_first_wallet_job_persists_bounded_activation_channel(client, db_session):
+    response = client.post(
+        "/internal/snapshot-jobs",
+        headers={"X-Internal-Token": "test-token"},
+        json={
+            "user_id": 1,
+            "trigger_type": "auto",
+            "scope_type": "wallet",
+            "wallet_id": 25,
+            "activation_channel": "telegram",
+        },
+    )
+
+    assert response.status_code == 200
+    assert db_session.query(SnapshotRun).one().activation_channel == "telegram"
+
+
+def test_activation_channel_rejects_unbounded_or_non_auto_values(client):
+    unbounded = client.post(
+        "/internal/snapshot-jobs",
+        headers={"X-Internal-Token": "test-token"},
+        json={
+            "user_id": 1,
+            "trigger_type": "auto",
+            "scope_type": "wallet",
+            "wallet_id": 25,
+            "activation_channel": "user-123",
+        },
+    )
+    manual = client.post(
+        "/internal/snapshot-jobs",
+        headers={"X-Internal-Token": "test-token"},
+        json={
+            "user_id": 1,
+            "trigger_type": "manual",
+            "scope_type": "wallet",
+            "wallet_id": 25,
+            "activation_channel": "web",
+        },
+    )
+
+    assert unbounded.status_code == 422
+    assert manual.status_code == 422
 
 
 def test_invalid_scope_validation(client):

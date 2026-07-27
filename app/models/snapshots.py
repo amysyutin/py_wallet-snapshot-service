@@ -23,6 +23,7 @@ class SnapshotRun(Base):
     group_id: Mapped[int | None] = mapped_column(index=True)
     wallet_id: Mapped[int | None] = mapped_column(index=True)
     parent_run_id: Mapped[int | None] = mapped_column(index=True)
+    activation_channel: Mapped[str | None] = mapped_column(String(16))
     status: Mapped[str] = mapped_column(String(32), index=True, default=JobStatus.PENDING.value)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), index=True

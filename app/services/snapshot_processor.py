@@ -18,6 +18,7 @@ from app.metrics import (
     last_job_completion_timestamp_seconds,
     last_job_success_timestamp_seconds,
     last_success_timestamp,
+    observe_first_snapshot_outcome,
     rpc_latency_seconds,
     wallets_processed_total,
 )
@@ -77,6 +78,10 @@ class SnapshotProcessor:
             job_duration_seconds.labels(job.status, job.trigger_type, job.scope_type).observe(
                 perf_counter() - started
             )
+            observe_first_snapshot_outcome(
+                channel=job.activation_channel,
+                status=job.status,
+            )
             return job.status
 
         wallet_statuses = []
@@ -109,6 +114,10 @@ class SnapshotProcessor:
         jobs_total.labels(job.status, job.trigger_type, job.scope_type).inc()
         job_duration_seconds.labels(job.status, job.trigger_type, job.scope_type).observe(
             perf_counter() - started
+        )
+        observe_first_snapshot_outcome(
+            channel=job.activation_channel,
+            status=job.status,
         )
         logger.info("snapshot_job_finished", extra=self._log_extra(job, status=job.status))
         return job.status
