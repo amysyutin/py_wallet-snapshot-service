@@ -12,6 +12,7 @@ def test_metrics_exposes_snapshot_metrics(client):
     response = client.get("/metrics")
 
     assert response.status_code == 200
+    assert "py_wallet_first_snapshot_outcome_total" in response.text
     assert "snapshot_worker_jobs_total" in response.text
     assert 'snapshot_service_build_info{build_sha="unknown",environment="local"' in response.text
     assert "snapshot_worker_oldest_pending_job_age_seconds" in response.text

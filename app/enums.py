@@ -2,6 +2,7 @@ from enum import StrEnum
 
 
 class TriggerType(StrEnum):
+    AUTO = "auto"
     SCHEDULED = "scheduled"
     MANUAL = "manual"
     RETRY = "retry"

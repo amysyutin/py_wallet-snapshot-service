@@ -144,6 +144,25 @@ jobs_skipped_total = Counter(
     ["source", "reason"],
     registry=registry,
 )
+first_snapshot_outcome_total = Counter(
+    "py_wallet_first_snapshot_outcome_total",
+    "Terminal outcome of the auto snapshot created for a user's first wallet.",
+    ["channel", "outcome"],
+    registry=registry,
+)
+
+
+def observe_first_snapshot_outcome(*, channel: str | None, status: str) -> None:
+    """Record only bounded activation channels and terminal product outcomes."""
+    if channel not in {"web", "telegram"}:
+        return
+    outcome = {
+        "success": "success",
+        "partial_success": "partial",
+        "failed": "failed",
+    }.get(status)
+    if outcome is not None:
+        first_snapshot_outcome_total.labels(channel, outcome).inc()
 
 
 def configure_build_info(*, service: str, version: str, build_sha: str, environment: str) -> None:
