@@ -198,6 +198,13 @@ Debug and external providers:
 
 See `.env.example` for defaults.
 
+If CoinGecko is unavailable, local, development, and test environments may use
+the explicitly labelled `static_dev` prices to keep fixtures and manual
+debugging usable. Staging and production never use those static values; a
+missing market price is persisted as unavailable so the public portfolio
+health contract can mark the total incomplete instead of presenting an
+invented live value.
+
 Each `*_RPC_URL` accepts a comma-separated list ordered as primary, backup, and
 emergency endpoint. Failed endpoints are removed from rotation for
 `RPC_COOLDOWN_SECONDS`; startup checks verify that every endpoint reports the

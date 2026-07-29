@@ -3,7 +3,7 @@ from decimal import Decimal
 
 import httpx
 
-from app.config import Settings, get_settings
+from app.config import SECURE_ENVIRONMENTS, Settings, get_settings
 
 
 class PriceService:
@@ -44,7 +44,11 @@ class PriceService:
             self._cache[normalized] = (now, price, "coingecko")
             return price, "coingecko"
 
-        fallback = self.dev_prices.get(normalized)
+        fallback = (
+            None
+            if self.settings.environment in SECURE_ENVIRONMENTS
+            else self.dev_prices.get(normalized)
+        )
         if fallback is not None:
             self._cache[normalized] = (now, fallback, "static_dev")
             return fallback, "static_dev"
