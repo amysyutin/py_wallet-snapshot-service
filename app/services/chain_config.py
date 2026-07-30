@@ -52,7 +52,11 @@ def _rpc_urls(value: str) -> tuple[str, ...]:
 
 def get_enabled_chains(settings: Settings) -> tuple[str, ...]:
     requested = tuple(
-        chain.strip() for chain in settings.snapshot_enabled_chains.split(",") if chain.strip()
+        dict.fromkeys(
+            chain.strip()
+            for chain in settings.snapshot_enabled_chains.split(",")
+            if chain.strip()
+        )
     )
     return tuple(chain for chain in requested if chain in SUPPORTED_CHAINS) or SUPPORTED_CHAINS
 
