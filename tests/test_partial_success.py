@@ -242,6 +242,21 @@ def test_enabled_chains_limits_evm_collection(db_session, monkeypatch):
     assert collector.calls == ["mainnet"]
 
 
+def test_enabled_chains_deduplicates_configuration(db_session, monkeypatch):
+    monkeypatch.setenv("SNAPSHOT_ENABLED_CHAINS", "base, mainnet,base,base")
+    get_settings.cache_clear()
+    job = make_job(db_session)
+    collector = FakeEvmCollector({})
+
+    try:
+        status = SnapshotProcessor(db_session, evm_collector=collector).process(job)
+    finally:
+        get_settings.cache_clear()
+
+    assert status == JobStatus.SUCCESS.value
+    assert collector.calls == ["base", "mainnet"]
+
+
 def test_retry_failed_chains_collects_only_failed_parent_chains(db_session):
     parent_job = make_job(db_session)
     parent_collector = FakeEvmCollector({"mainnet": ChainStatus.FAILED.value})
