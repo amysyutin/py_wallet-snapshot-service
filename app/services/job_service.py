@@ -1,7 +1,10 @@
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from hashlib import blake2b
+from typing import Literal
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
 from app.enums import JobStatus, ScopeType, TriggerType
@@ -10,11 +13,65 @@ from app.models.snapshots import ChainSnapshot, SnapshotRun
 from app.schemas.jobs import SnapshotJobCreate
 
 
+@dataclass(frozen=True)
+class JobCreationResult:
+    job: SnapshotRun
+    reused: bool
+
+
 class JobService:
     def __init__(self, db: Session):
         self.db = db
 
-    def create_job(self, payload: SnapshotJobCreate) -> SnapshotRun:
+    @staticmethod
+    def _active_scope_lock_key(payload: SnapshotJobCreate) -> int:
+        scope = (
+            f"{payload.user_id}:{payload.scope_type.value}:"
+            f"{payload.group_id or 0}:{payload.wallet_id or 0}"
+        )
+        return int.from_bytes(
+            blake2b(scope.encode("utf-8"), digest_size=8).digest(),
+            byteorder="big",
+            signed=True,
+        )
+
+    def _lock_active_scope(self, payload: SnapshotJobCreate) -> None:
+        bind = self.db.get_bind()
+        if bind.dialect.name != "postgresql":
+            return
+        self.db.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_key)"),
+            {"lock_key": self._active_scope_lock_key(payload)},
+        )
+
+    def _get_active_scope_job(self, payload: SnapshotJobCreate) -> SnapshotRun | None:
+        query = select(SnapshotRun).where(
+            SnapshotRun.user_id == payload.user_id,
+            SnapshotRun.scope_type == payload.scope_type.value,
+            SnapshotRun.status.in_((JobStatus.PENDING.value, JobStatus.RUNNING.value)),
+        )
+        if payload.group_id is None:
+            query = query.where(SnapshotRun.group_id.is_(None))
+        else:
+            query = query.where(SnapshotRun.group_id == payload.group_id)
+        if payload.wallet_id is None:
+            query = query.where(SnapshotRun.wallet_id.is_(None))
+        else:
+            query = query.where(SnapshotRun.wallet_id == payload.wallet_id)
+        return self.db.scalar(query.order_by(SnapshotRun.id.desc()).limit(1))
+
+    def create_job(
+        self,
+        payload: SnapshotJobCreate,
+        *,
+        source: Literal["api", "scheduler"] = "api",
+    ) -> JobCreationResult:
+        self._lock_active_scope(payload)
+        active_job = self._get_active_scope_job(payload)
+        if active_job is not None:
+            self.db.commit()
+            return JobCreationResult(job=active_job, reused=True)
+
         job = SnapshotRun(
             user_id=payload.user_id,
             trigger_type=payload.trigger_type.value,
@@ -29,8 +86,8 @@ class JobService:
         self.db.add(job)
         self.db.commit()
         self.db.refresh(job)
-        jobs_enqueued_total.labels("api", job.trigger_type, job.scope_type).inc()
-        return job
+        jobs_enqueued_total.labels(source, job.trigger_type, job.scope_type).inc()
+        return JobCreationResult(job=job, reused=False)
 
     def get_job(self, job_id: int) -> SnapshotRun:
         job = self.db.get(SnapshotRun, job_id)
