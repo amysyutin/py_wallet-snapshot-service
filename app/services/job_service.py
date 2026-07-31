@@ -95,10 +95,37 @@ class JobService:
             raise HTTPException(status_code=404, detail="job not found")
         return job
 
-    def create_retry_failed_job(self, parent_job_id: int) -> SnapshotRun:
+    @staticmethod
+    def _retry_lock_key(parent_job_id: int) -> int:
+        scope = f"retry:{parent_job_id}"
+        return int.from_bytes(
+            blake2b(scope.encode("utf-8"), digest_size=8).digest(),
+            byteorder="big",
+            signed=True,
+        )
+
+    def _lock_retry_parent(self, parent_job_id: int) -> None:
+        bind = self.db.get_bind()
+        if bind.dialect.name != "postgresql":
+            return
+        self.db.execute(
+            text("SELECT pg_advisory_xact_lock(:lock_key)"),
+            {"lock_key": self._retry_lock_key(parent_job_id)},
+        )
+
+    def create_retry_failed_job(self, parent_job_id: int) -> JobCreationResult:
+        self._lock_retry_parent(parent_job_id)
         parent = self.db.get(SnapshotRun, parent_job_id)
         if parent is None:
             raise HTTPException(status_code=404, detail="parent job not found")
+        if parent.status not in (
+            JobStatus.PARTIAL_SUCCESS.value,
+            JobStatus.FAILED.value,
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="parent job is not ready for failed-chain retry",
+            )
 
         failed_chain_exists = self.db.scalar(
             select(ChainSnapshot.id)
@@ -111,6 +138,21 @@ class JobService:
         )
         if failed_chain_exists is None:
             raise HTTPException(status_code=400, detail="parent job has no failed chains")
+
+        active_retry = self.db.scalar(
+            select(SnapshotRun)
+            .where(
+                SnapshotRun.parent_run_id == parent.id,
+                SnapshotRun.trigger_type == TriggerType.RETRY.value,
+                SnapshotRun.scope_type == ScopeType.FAILED_CHAINS.value,
+                SnapshotRun.status.in_((JobStatus.PENDING.value, JobStatus.RUNNING.value)),
+            )
+            .order_by(SnapshotRun.id.desc())
+            .limit(1)
+        )
+        if active_retry is not None:
+            self.db.commit()
+            return JobCreationResult(job=active_retry, reused=True)
 
         job = SnapshotRun(
             user_id=parent.user_id,
@@ -126,4 +168,4 @@ class JobService:
         self.db.commit()
         self.db.refresh(job)
         jobs_enqueued_total.labels("api", job.trigger_type, job.scope_type).inc()
-        return job
+        return JobCreationResult(job=job, reused=False)

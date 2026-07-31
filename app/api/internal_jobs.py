@@ -21,8 +21,12 @@ def create_snapshot_job(payload: SnapshotJobCreate, db: Session = Depends(get_db
 
 @router.post("/{job_id}/retry-failed", response_model=SnapshotJobCreateResponse)
 def retry_failed_chains(job_id: int, db: Session = Depends(get_db)):
-    job = JobService(db).create_retry_failed_job(job_id)
-    return SnapshotJobCreateResponse(job_id=job.id, status=job.status)
+    result = JobService(db).create_retry_failed_job(job_id)
+    return SnapshotJobCreateResponse(
+        job_id=result.job.id,
+        status=result.job.status,
+        reused=result.reused,
+    )
 
 
 @router.get("/{job_id}", response_model=SnapshotJobStatusResponse)

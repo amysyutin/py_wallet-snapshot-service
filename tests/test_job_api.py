@@ -1,5 +1,7 @@
+from datetime import UTC, datetime
+
 from app.metrics import jobs_enqueued_total
-from app.models.snapshots import SnapshotRun
+from app.models.snapshots import ChainSnapshot, SnapshotRun, WalletSnapshot
 
 
 def test_internal_token_required(client):
@@ -172,3 +174,72 @@ def test_invalid_scope_validation(client):
     )
 
     assert response.status_code == 422
+
+
+def test_retry_failed_job_reuses_active_child(client, db_session):
+    parent = SnapshotRun(
+        user_id=1,
+        trigger_type="manual",
+        scope_type="all",
+        status="partial_success",
+        created_at=datetime.now(UTC),
+    )
+    db_session.add(parent)
+    db_session.flush()
+    wallet_snapshot = WalletSnapshot(
+        snapshot_run_id=parent.id,
+        wallet_id=1,
+        wallet_type="evm",
+        status="partial_success",
+        total_usd=0,
+    )
+    db_session.add(wallet_snapshot)
+    db_session.flush()
+    db_session.add(
+        ChainSnapshot(
+            wallet_snapshot_id=wallet_snapshot.id,
+            chain="base",
+            status="failed",
+            total_usd=0,
+            error_type="timeout",
+        )
+    )
+    db_session.commit()
+
+    first = client.post(
+        f"/internal/snapshot-jobs/{parent.id}/retry-failed",
+        headers={"X-Internal-Token": "test-token"},
+    )
+    second = client.post(
+        f"/internal/snapshot-jobs/{parent.id}/retry-failed",
+        headers={"X-Internal-Token": "test-token"},
+    )
+
+    assert first.status_code == 200
+    assert first.json()["reused"] is False
+    assert second.status_code == 200
+    assert second.json() == {
+        "job_id": first.json()["job_id"],
+        "status": "pending",
+        "reused": True,
+    }
+    assert db_session.query(SnapshotRun).filter(SnapshotRun.parent_run_id == parent.id).count() == 1
+
+
+def test_retry_rejects_nonterminal_parent(client, db_session):
+    parent = SnapshotRun(
+        user_id=1,
+        trigger_type="manual",
+        scope_type="all",
+        status="running",
+        created_at=datetime.now(UTC),
+    )
+    db_session.add(parent)
+    db_session.commit()
+
+    response = client.post(
+        f"/internal/snapshot-jobs/{parent.id}/retry-failed",
+        headers={"X-Internal-Token": "test-token"},
+    )
+
+    assert response.status_code == 409
