@@ -1,4 +1,4 @@
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -11,7 +11,12 @@ from app.metrics import (
     last_job_completion_timestamp_seconds,
     last_job_success_timestamp_seconds,
 )
-from app.models.snapshots import BalanceSnapshot, SnapshotRun
+from app.models.snapshots import (
+    BalanceSnapshot,
+    ChainSnapshot,
+    SnapshotRun,
+    WalletSnapshot,
+)
 from app.services.evm_collector import AssetBalance, ChainCollectionResult
 from app.services.snapshot_processor import SnapshotProcessor
 from tests.conftest import seed_user_wallet
@@ -261,6 +266,20 @@ def test_retry_failed_chains_collects_only_failed_parent_chains(db_session):
     parent_job = make_job(db_session)
     parent_collector = FakeEvmCollector({"mainnet": ChainStatus.FAILED.value})
     SnapshotProcessor(db_session, evm_collector=parent_collector).process(parent_job)
+    carried_observed_at = datetime.now(UTC) - timedelta(hours=2)
+    carried_parent_chains = (
+        db_session.query(ChainSnapshot)
+        .join(WalletSnapshot)
+        .filter(
+            WalletSnapshot.snapshot_run_id == parent_job.id,
+            ChainSnapshot.status == ChainStatus.SUCCESS.value,
+        )
+        .all()
+    )
+    for chain in carried_parent_chains:
+        chain.started_at = carried_observed_at
+        chain.finished_at = carried_observed_at
+    db_session.commit()
 
     retry_job = SnapshotRun(
         user_id=1,
@@ -278,3 +297,27 @@ def test_retry_failed_chains_collects_only_failed_parent_chains(db_session):
 
     assert status == JobStatus.SUCCESS.value
     assert retry_collector.calls == ["mainnet"]
+    retry_wallet = (
+        db_session.query(WalletSnapshot)
+        .filter(WalletSnapshot.snapshot_run_id == retry_job.id)
+        .one()
+    )
+    retry_chains = (
+        db_session.query(ChainSnapshot)
+        .filter(ChainSnapshot.wallet_snapshot_id == retry_wallet.id)
+        .order_by(ChainSnapshot.chain)
+        .all()
+    )
+    assert [chain.chain for chain in retry_chains] == [
+        "arbitrum",
+        "base",
+        "bnb",
+        "linea",
+        "mainnet",
+    ]
+    assert all(chain.status == ChainStatus.SUCCESS.value for chain in retry_chains)
+    assert retry_wallet.total_usd == Decimal("50")
+    assert retry_wallet.finished_at.replace(tzinfo=UTC) == carried_observed_at
+    assert {
+        chain.finished_at.replace(tzinfo=UTC) for chain in retry_chains if chain.chain != "mainnet"
+    } == {carried_observed_at}

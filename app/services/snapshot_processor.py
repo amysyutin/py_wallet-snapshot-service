@@ -4,7 +4,7 @@ from decimal import Decimal
 from time import perf_counter
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.config import get_settings
 from app.enums import ChainStatus, JobStatus, ScopeType, WalletSnapshotStatus, WalletType
@@ -155,11 +155,19 @@ class SnapshotProcessor:
             extra=self._log_extra(job, wallet_id=wallet.id, status=wallet_snapshot.status),
         )
 
+        carried_chains: list[ChainSnapshot] = []
         if wallet.wallet_type == WalletType.MANUAL.value:
             results = [self._collect_manual_wallet(job, wallet)]
         elif wallet.wallet_type == WalletType.EVM.value:
-            chains = self._chains_for_wallet(job, wallet)
-            results = [self._collect_evm_chain(job, wallet, chain) for chain in chains]
+            if job.scope_type == ScopeType.FAILED_CHAINS.value and job.parent_run_id is not None:
+                carried_chains, retry_chains = self._retry_plan(job, wallet)
+                for chain in carried_chains:
+                    self._copy_chain_snapshot(wallet_snapshot, chain)
+                results = [self._collect_evm_chain(job, wallet, chain) for chain in retry_chains]
+            else:
+                results = [
+                    self._collect_evm_chain(job, wallet, chain) for chain in self.enabled_chains
+                ]
         else:
             results = [
                 ChainCollectionResult(
@@ -177,8 +185,13 @@ class SnapshotProcessor:
         for result in results:
             self._write_chain_result(wallet_snapshot, result)
 
-        statuses = [result.status for result in results]
-        wallet_snapshot.total_usd = sum((result.total_usd for result in results), Decimal("0"))
+        statuses = [chain.status for chain in carried_chains] + [
+            result.status for result in results
+        ]
+        wallet_snapshot.total_usd = sum(
+            (chain.total_usd for chain in carried_chains),
+            Decimal("0"),
+        ) + sum((result.total_usd for result in results), Decimal("0"))
         if all(status == ChainStatus.SUCCESS.value for status in statuses):
             wallet_snapshot.status = WalletSnapshotStatus.SUCCESS.value
         elif any(status == ChainStatus.SUCCESS.value for status in statuses):
@@ -186,27 +199,75 @@ class SnapshotProcessor:
         else:
             wallet_snapshot.status = WalletSnapshotStatus.FAILED.value
             wallet_snapshot.error_message = "all chains failed"
-        wallet_snapshot.finished_at = datetime.now(UTC)
+        completed_at = datetime.now(UTC)
+        wallet_snapshot.finished_at = min(
+            [
+                completed_at,
+                *(chain.finished_at for chain in carried_chains if chain.finished_at is not None),
+            ]
+        )
         self.db.commit()
         wallets_processed_total.labels(wallet_snapshot.status).inc()
         return wallet_snapshot.status
 
-    def _chains_for_wallet(self, job: SnapshotRun, wallet: Wallet) -> tuple[str, ...]:
-        if job.scope_type != ScopeType.FAILED_CHAINS.value or job.parent_run_id is None:
-            return self.enabled_chains
-
-        stmt = (
-            select(ChainSnapshot.chain)
-            .join(ChainSnapshot.wallet_snapshot)
-            .where(
-                WalletSnapshot.snapshot_run_id == job.parent_run_id,
-                WalletSnapshot.wallet_id == wallet.id,
-                ChainSnapshot.status == ChainStatus.FAILED.value,
+    def _retry_plan(
+        self,
+        job: SnapshotRun,
+        wallet: Wallet,
+    ) -> tuple[list[ChainSnapshot], tuple[str, ...]]:
+        parent_chains = list(
+            self.db.scalars(
+                select(ChainSnapshot)
+                .join(ChainSnapshot.wallet_snapshot)
+                .where(
+                    WalletSnapshot.snapshot_run_id == job.parent_run_id,
+                    WalletSnapshot.wallet_id == wallet.id,
+                )
+                .options(selectinload(ChainSnapshot.balance_snapshots))
+                .order_by(ChainSnapshot.chain)
             )
-            .order_by(ChainSnapshot.chain)
         )
-        chains = tuple(chain for chain in self.db.scalars(stmt) if chain in self.enabled_chains)
-        return chains or self.enabled_chains
+        retry_chains = tuple(
+            chain.chain
+            for chain in parent_chains
+            if chain.status == ChainStatus.FAILED.value and chain.chain in self.enabled_chains
+        )
+        carried_chains = [chain for chain in parent_chains if chain.chain not in retry_chains]
+        return carried_chains, retry_chains
+
+    def _copy_chain_snapshot(
+        self,
+        wallet_snapshot: WalletSnapshot,
+        chain: ChainSnapshot,
+    ) -> None:
+        copied_chain = ChainSnapshot(
+            wallet_snapshot_id=wallet_snapshot.id,
+            chain=chain.chain,
+            status=chain.status,
+            native_balance=chain.native_balance,
+            total_usd=chain.total_usd,
+            rpc_latency_ms=chain.rpc_latency_ms,
+            error_type=chain.error_type,
+            error_message=chain.error_message,
+            started_at=chain.started_at,
+            finished_at=chain.finished_at,
+        )
+        self.db.add(copied_chain)
+        self.db.flush()
+        for balance in chain.balance_snapshots:
+            self.db.add(
+                BalanceSnapshot(
+                    chain_snapshot_id=copied_chain.id,
+                    asset_symbol=balance.asset_symbol,
+                    asset_address=balance.asset_address,
+                    asset_type=balance.asset_type,
+                    amount=balance.amount,
+                    price_usd=balance.price_usd,
+                    value_usd=balance.value_usd,
+                    price_source=balance.price_source,
+                )
+            )
+            balance_snapshots_written_total.inc()
 
     def _collect_manual_wallet(self, job: SnapshotRun, wallet: Wallet) -> ChainCollectionResult:
         started = perf_counter()

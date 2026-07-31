@@ -309,8 +309,13 @@ The worker loop:
 6. Writes wallet, chain, and balance snapshots.
 7. Marks the job `success`, `partial_success`, or `failed`.
 
-Retry jobs store `parent_run_id`, use `scope_type=failed_chains`, and process only
-failed chains from the parent job for matching wallets.
+Retry jobs store `parent_run_id`, use `scope_type=failed_chains`, and collect
+only failed chains from the parent job for matching wallets. Successful parent
+chains are copied into the child snapshot so a recovered retry remains a
+complete readable portfolio snapshot rather than replacing the total with only
+the retried subset. Copied chains preserve their original observation time, so
+the child wallet timestamp remains conservative. Concurrent retries for the
+same parent reuse one active child job.
 
 Missing RPC URLs are recorded as failed chain snapshots with
 `error_type=missing_rpc_url`. Other wallets/chains can still complete, so the final
