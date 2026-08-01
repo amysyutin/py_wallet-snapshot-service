@@ -30,6 +30,7 @@ class SnapshotJobCreate(BaseModel):
 class SnapshotJobCreateResponse(BaseModel):
     job_id: int
     status: JobStatus
+    reused: bool = False
 
 
 class SnapshotJobStatusResponse(BaseModel):

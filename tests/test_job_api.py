@@ -31,7 +31,54 @@ def test_can_create_all_job(client):
 
     assert response.status_code == 200
     assert response.json()["status"] == "pending"
+    assert response.json()["reused"] is False
     assert jobs_enqueued_total.labels("api", "manual", "all")._value.get() == enqueued_before + 1
+
+
+def test_active_job_is_reused_for_the_same_user_and_scope(client, db_session):
+    enqueued_before = jobs_enqueued_total.labels("api", "manual", "all")._value.get()
+    first = client.post(
+        "/internal/snapshot-jobs",
+        headers={"X-Internal-Token": "test-token"},
+        json={"user_id": 1, "trigger_type": "manual", "scope_type": "all"},
+    )
+    second = client.post(
+        "/internal/snapshot-jobs",
+        headers={"X-Internal-Token": "test-token"},
+        json={"user_id": 1, "trigger_type": "manual", "scope_type": "all"},
+    )
+
+    assert second.status_code == 200
+    assert second.json() == {
+        "job_id": first.json()["job_id"],
+        "status": "pending",
+        "reused": True,
+    }
+    assert db_session.query(SnapshotRun).count() == 1
+    assert jobs_enqueued_total.labels("api", "manual", "all")._value.get() == enqueued_before + 1
+
+
+def test_active_job_reuse_is_scoped_by_user_and_target(client, db_session):
+    all_job = client.post(
+        "/internal/snapshot-jobs",
+        headers={"X-Internal-Token": "test-token"},
+        json={"user_id": 1, "trigger_type": "manual", "scope_type": "all"},
+    )
+    wallet_job = client.post(
+        "/internal/snapshot-jobs",
+        headers={"X-Internal-Token": "test-token"},
+        json={"user_id": 1, "trigger_type": "manual", "scope_type": "wallet", "wallet_id": 25},
+    )
+    other_user_job = client.post(
+        "/internal/snapshot-jobs",
+        headers={"X-Internal-Token": "test-token"},
+        json={"user_id": 2, "trigger_type": "manual", "scope_type": "all"},
+    )
+
+    assert all_job.json()["reused"] is False
+    assert wallet_job.json()["reused"] is False
+    assert other_user_job.json()["reused"] is False
+    assert db_session.query(SnapshotRun).count() == 3
 
 
 def test_can_get_job_status(client):

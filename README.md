@@ -262,6 +262,12 @@ curl -X POST http://localhost:8001/internal/snapshot-jobs \
   -d '{"user_id":1,"trigger_type":"manual","scope_type":"all"}'
 ```
 
+If the same user already has a `pending` or `running` job for the exact same
+scope, the endpoint returns that job with `"reused": true`. PostgreSQL
+transaction advisory locks serialize concurrent API and scheduler attempts, so
+double clicks and overlapping scheduler ticks do not enqueue duplicate work for
+one scope.
+
 Supported job scopes:
 
 - `all`
@@ -288,7 +294,8 @@ Internal job endpoints require `X-Internal-Token`.
 ## Worker And Scheduler
 
 The scheduler creates `scheduled/all/pending` jobs for active users who have active
-wallets. It skips users that already have a scheduled pending or running job.
+wallets. It reuses any pending or running `all` job for that user, including a
+manual refresh, instead of starting overlapping portfolio work.
 Scheduler and worker tick failures are logged and retried on the next interval so a
 temporary database or provider error cannot silently stop background processing.
 

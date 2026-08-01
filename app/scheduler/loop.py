@@ -8,17 +8,17 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.enums import JobStatus, ScopeType, TriggerType
+from app.enums import ScopeType, TriggerType
 from app.metrics import (
     background_tick_errors_total,
     database_errors_total,
-    jobs_enqueued_total,
     jobs_skipped_total,
     scheduler_heartbeat_timestamp_seconds,
     scheduler_jobs_created_total,
 )
 from app.models.external import User, Wallet
-from app.models.snapshots import SnapshotRun
+from app.schemas.jobs import SnapshotJobCreate
+from app.services.job_service import JobService
 
 logger = logging.getLogger(__name__)
 
@@ -55,39 +55,24 @@ def create_scheduled_jobs(db) -> int:
     ).all()
     created = 0
     for user in active_users:
-        existing = db.scalar(
-            select(SnapshotRun.id)
-            .where(
-                SnapshotRun.user_id == user.id,
-                SnapshotRun.trigger_type == TriggerType.SCHEDULED.value,
-                SnapshotRun.status.in_([JobStatus.PENDING.value, JobStatus.RUNNING.value]),
-            )
-            .limit(1)
+        result = JobService(db).create_job(
+            SnapshotJobCreate(
+                user_id=user.id,
+                trigger_type=TriggerType.SCHEDULED,
+                scope_type=ScopeType.ALL,
+            ),
+            source="scheduler",
         )
-        if existing:
+        if result.reused:
             scheduler_jobs_created_total.labels("skipped_existing_pending").inc()
             jobs_skipped_total.labels("scheduler", "existing_pending").inc()
             logger.info(
                 "scheduled_snapshot_job_skipped_existing_pending", extra={"user_id": user.id}
             )
             continue
-        db.add(
-            SnapshotRun(
-                user_id=user.id,
-                trigger_type=TriggerType.SCHEDULED.value,
-                scope_type=ScopeType.ALL.value,
-                status=JobStatus.PENDING.value,
-                created_at=datetime.now(UTC),
-            )
-        )
         created += 1
         scheduler_jobs_created_total.labels("created").inc()
         logger.info("scheduled_snapshot_job_created", extra={"user_id": user.id})
-    db.commit()
-    if created:
-        jobs_enqueued_total.labels(
-            "scheduler", TriggerType.SCHEDULED.value, ScopeType.ALL.value
-        ).inc(created)
     return created
 
 

@@ -51,6 +51,24 @@ def test_scheduler_does_not_create_duplicate_pending_job(db_session):
     )
 
 
+def test_scheduler_reuses_active_manual_portfolio_job(db_session):
+    seed_user_wallet(db_session)
+    db_session.add(
+        SnapshotRun(
+            user_id=1,
+            trigger_type=TriggerType.MANUAL.value,
+            scope_type=ScopeType.ALL.value,
+            status=JobStatus.RUNNING.value,
+        )
+    )
+    db_session.commit()
+
+    created = create_scheduled_jobs(db_session)
+
+    assert created == 0
+    assert db_session.query(SnapshotRun).count() == 1
+
+
 @pytest.mark.asyncio
 async def test_scheduler_continues_after_tick_error(caplog):
     loop = SchedulerLoop()

@@ -11,8 +11,12 @@ router = APIRouter(prefix="/internal/snapshot-jobs", dependencies=[Depends(requi
 
 @router.post("", response_model=SnapshotJobCreateResponse)
 def create_snapshot_job(payload: SnapshotJobCreate, db: Session = Depends(get_db)):
-    job = JobService(db).create_job(payload)
-    return SnapshotJobCreateResponse(job_id=job.id, status=job.status)
+    result = JobService(db).create_job(payload)
+    return SnapshotJobCreateResponse(
+        job_id=result.job.id,
+        status=result.job.status,
+        reused=result.reused,
+    )
 
 
 @router.post("/{job_id}/retry-failed", response_model=SnapshotJobCreateResponse)
