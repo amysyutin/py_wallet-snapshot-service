@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.enums import ScopeType
 from app.models.external import Wallet
-from app.models.snapshots import SnapshotRun
+from app.models.snapshots import ChainSnapshot, SnapshotRun, WalletSnapshot
 
 
 class WalletLoader:
@@ -17,13 +17,24 @@ class WalletLoader:
         elif job.scope_type == ScopeType.WALLET.value:
             stmt = stmt.where(Wallet.id == job.wallet_id)
         elif job.scope_type == ScopeType.FAILED_CHAINS.value:
-            # Chain-level narrowing happens in SnapshotProcessor using parent_run_id.
-            if job.wallet_id:
-                stmt = stmt.where(Wallet.id == job.wallet_id)
-            elif job.group_id:
-                stmt = stmt.where(Wallet.group_id == job.group_id)
+            stmt = (
+                stmt.join(WalletSnapshot, WalletSnapshot.wallet_id == Wallet.id)
+                .join(
+                    ChainSnapshot,
+                    ChainSnapshot.wallet_snapshot_id == WalletSnapshot.id,
+                )
+                .where(
+                    WalletSnapshot.snapshot_run_id == job.parent_run_id,
+                    ChainSnapshot.status == "failed",
+                )
+                .distinct()
+            )
         wallets = list(self.db.scalars(stmt.order_by(Wallet.id)))
-        if job.scope_type in (ScopeType.ALL.value, ScopeType.GROUP.value):
+        if job.scope_type in (
+            ScopeType.ALL.value,
+            ScopeType.GROUP.value,
+            ScopeType.FAILED_CHAINS.value,
+        ):
             return self._deduplicate_evm_addresses(wallets)
         return wallets
 
