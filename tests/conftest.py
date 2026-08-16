@@ -73,7 +73,7 @@ def seed_user_wallet(
         group_id=10,
         label="Wallet",
         address=address,
-        chain_type="evm" if wallet_type == "evm" else None,
+        chain_type=wallet_type if wallet_type in {"evm", "solana"} else None,
         wallet_type=wallet_type,
         is_active=True,
     )

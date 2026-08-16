@@ -50,6 +50,7 @@ class Settings(BaseSettings):
     arbitrum_rpc_url: str = ""
     bnb_rpc_url: str = ""
     linea_rpc_url: str = ""
+    solana_rpc_url: str = ""
 
     coingecko_base_url: str = "https://api.coingecko.com/api/v3"
     price_cache_ttl_seconds: int = 60

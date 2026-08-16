@@ -20,23 +20,35 @@ from app.metrics import (
     worker_heartbeat_timestamp_seconds,
 )
 from app.models.snapshots import SnapshotRun
-from app.services.chain_config import get_chain_configs
+from app.services.chain_config import get_chain_configs, get_solana_rpc_urls
 from app.services.evm_collector import EvmCollector
 from app.services.price_service import PriceService
 from app.services.snapshot_processor import SnapshotProcessor
+from app.services.solana_collector import SolanaCollector
 from app.worker.claim import JobLeaseLostError, claim_next_pending_job
 
 logger = logging.getLogger(__name__)
 
 
 class WorkerLoop:
-    def __init__(self, evm_collector: EvmCollector | None = None):
+    def __init__(
+        self,
+        evm_collector: EvmCollector | None = None,
+        solana_collector: SolanaCollector | None = None,
+    ):
         self._stop = asyncio.Event()
         self.worker_id = str(uuid4())
         settings = get_settings()
+        price_service = PriceService(settings)
         self.evm_collector = evm_collector or EvmCollector(
             get_chain_configs(settings),
-            PriceService(settings),
+            price_service,
+            cooldown_seconds=settings.rpc_cooldown_seconds,
+        )
+        self.solana_collector = solana_collector or SolanaCollector(
+            get_solana_rpc_urls(settings),
+            price_service,
+            timeout_seconds=settings.chain_timeout_seconds,
             cooldown_seconds=settings.rpc_cooldown_seconds,
         )
 
@@ -60,6 +72,7 @@ class WorkerLoop:
                             SnapshotProcessor(
                                 db,
                                 evm_collector=self.evm_collector,
+                                solana_collector=self.solana_collector,
                                 worker_id=self.worker_id,
                                 lease_seconds=settings.snapshot_job_lease_seconds,
                             ).process(job)
@@ -94,6 +107,7 @@ class WorkerLoop:
                     await asyncio.sleep(settings.snapshot_worker_poll_seconds)
         finally:
             self.evm_collector.close()
+            self.solana_collector.close()
 
     def stop(self) -> None:
         self._stop.set()

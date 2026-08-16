@@ -102,9 +102,13 @@ async def test_worker_counts_database_tick_errors():
 
 
 @pytest.mark.asyncio
-async def test_worker_reuses_one_evm_collector_across_jobs():
+async def test_worker_reuses_onchain_collectors_across_jobs():
     collector = MagicMock()
-    loop = WorkerLoop(evm_collector=collector)
+    solana_collector = MagicMock()
+    loop = WorkerLoop(
+        evm_collector=collector,
+        solana_collector=solana_collector,
+    )
     session_context = MagicMock()
     session_context.__enter__.return_value = object()
     jobs = [MagicMock(id=1), MagicMock(id=2)]
@@ -126,4 +130,8 @@ async def test_worker_reuses_one_evm_collector_across_jobs():
 
     assert processor.call_count == 2
     assert all(call.kwargs["evm_collector"] is collector for call in processor.call_args_list)
+    assert all(
+        call.kwargs["solana_collector"] is solana_collector for call in processor.call_args_list
+    )
     collector.close.assert_called_once_with()
+    solana_collector.close.assert_called_once_with()

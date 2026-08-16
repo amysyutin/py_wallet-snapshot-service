@@ -39,3 +39,17 @@ def test_non_secure_environments_keep_explicit_static_dev_prices(
     monkeypatch.setattr(service, "_fetch_coingecko_price", lambda _symbol: None)
 
     assert service.get_usd_price("ETH") == (Decimal("3000"), "static_dev")
+
+
+def test_sol_price_uses_coingecko_mapping(monkeypatch: pytest.MonkeyPatch):
+    service = PriceService(_settings("production"))
+    observed = []
+
+    def fetch(symbol: str):
+        observed.append(symbol)
+        return Decimal("175.25")
+
+    monkeypatch.setattr(service, "_fetch_coingecko_price", fetch)
+
+    assert service.get_usd_price("sol") == (Decimal("175.25"), "coingecko")
+    assert observed == ["SOL"]

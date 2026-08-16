@@ -79,6 +79,53 @@ class TokenEvmCollector(FakeEvmCollector):
         return result
 
 
+class FakeSolanaCollector:
+    def __init__(self, status=ChainStatus.SUCCESS.value):
+        self.status = status
+        self.calls = []
+
+    def collect_wallet(self, address):
+        self.calls.append(address)
+        if self.status == ChainStatus.FAILED.value:
+            return ChainCollectionResult(
+                chain="solana",
+                status=self.status,
+                native_balance=None,
+                total_usd=Decimal("0"),
+                rpc_latency_ms=None,
+                balances=[],
+                error_type="timeout",
+                error_message="timeout",
+            )
+        return ChainCollectionResult(
+            chain="solana",
+            status=self.status,
+            native_balance=Decimal("2"),
+            total_usd=Decimal("202.5"),
+            rpc_latency_ms=1,
+            balances=[
+                AssetBalance(
+                    symbol="SOL",
+                    asset_address=None,
+                    asset_type=AssetType.NATIVE.value,
+                    amount=Decimal("2"),
+                    price_usd=Decimal("100"),
+                    value_usd=Decimal("200"),
+                    price_source="test",
+                ),
+                AssetBalance(
+                    symbol="USDC",
+                    asset_address="EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v",
+                    asset_type=AssetType.SPL.value,
+                    amount=Decimal("2.5"),
+                    price_usd=Decimal("1"),
+                    value_usd=Decimal("2.5"),
+                    price_source="test",
+                ),
+            ],
+        )
+
+
 def make_job(db_session):
     seed_user_wallet(
         db_session,
@@ -230,6 +277,86 @@ def test_erc20_balances_are_persisted(db_session, monkeypatch):
     assert token.asset_type == AssetType.ERC20.value
     assert token.amount == Decimal("12.5")
     assert token.value_usd == Decimal("12.5")
+
+
+def test_solana_wallet_persists_native_and_spl_balances(db_session):
+    address = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    seed_user_wallet(
+        db_session,
+        wallet_type="solana",
+        address=address,
+    )
+    job = SnapshotRun(
+        user_id=1,
+        trigger_type=TriggerType.MANUAL.value,
+        scope_type=ScopeType.ALL.value,
+        status=JobStatus.RUNNING.value,
+        created_at=datetime.now(UTC),
+    )
+    db_session.add(job)
+    db_session.commit()
+    collector = FakeSolanaCollector()
+
+    status = SnapshotProcessor(
+        db_session,
+        solana_collector=collector,
+    ).process(job)
+
+    balances = db_session.query(BalanceSnapshot).order_by(BalanceSnapshot.id).all()
+    chain = db_session.query(ChainSnapshot).one()
+    assert status == JobStatus.SUCCESS.value
+    assert collector.calls == [address]
+    assert chain.chain == "solana"
+    assert chain.native_balance == Decimal("2")
+    assert [(balance.asset_symbol, balance.asset_type) for balance in balances] == [
+        ("SOL", AssetType.NATIVE.value),
+        ("USDC", AssetType.SPL.value),
+    ]
+
+
+def test_retry_failed_chains_retries_solana_wallet(db_session):
+    address = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    seed_user_wallet(db_session, wallet_type="solana", address=address)
+    parent_job = SnapshotRun(
+        user_id=1,
+        trigger_type=TriggerType.MANUAL.value,
+        scope_type=ScopeType.ALL.value,
+        status=JobStatus.RUNNING.value,
+        created_at=datetime.now(UTC),
+    )
+    db_session.add(parent_job)
+    db_session.commit()
+    SnapshotProcessor(
+        db_session,
+        solana_collector=FakeSolanaCollector(ChainStatus.FAILED.value),
+    ).process(parent_job)
+    retry_job = SnapshotRun(
+        user_id=1,
+        trigger_type=TriggerType.RETRY.value,
+        scope_type=ScopeType.FAILED_CHAINS.value,
+        status=JobStatus.RUNNING.value,
+        parent_run_id=parent_job.id,
+        created_at=datetime.now(UTC),
+    )
+    db_session.add(retry_job)
+    db_session.commit()
+    collector = FakeSolanaCollector()
+
+    status = SnapshotProcessor(
+        db_session,
+        solana_collector=collector,
+    ).process(retry_job)
+
+    retry_chain = (
+        db_session.query(ChainSnapshot)
+        .join(WalletSnapshot)
+        .filter(WalletSnapshot.snapshot_run_id == retry_job.id)
+        .one()
+    )
+    assert status == JobStatus.SUCCESS.value
+    assert collector.calls == [address]
+    assert retry_chain.chain == "solana"
+    assert retry_chain.status == ChainStatus.SUCCESS.value
 
 
 def test_enabled_chains_limits_evm_collection(db_session, monkeypatch):
