@@ -50,6 +50,10 @@ def _rpc_urls(value: str) -> tuple[str, ...]:
     return tuple(url.strip() for url in value.split(",") if url.strip())
 
 
+def get_solana_rpc_urls(settings: Settings) -> tuple[str, ...]:
+    return _rpc_urls(settings.solana_rpc_url)
+
+
 def get_enabled_chains(settings: Settings) -> tuple[str, ...]:
     requested = tuple(
         dict.fromkeys(

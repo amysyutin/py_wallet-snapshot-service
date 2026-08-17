@@ -2,9 +2,9 @@
 
 FastAPI microservice that creates and processes wallet snapshot jobs for `py_wallet`.
 It reads active users and wallets from the shared PostgreSQL database, collects EVM
-native and configured ERC-20 balances through RPC, includes manual wallet balances,
-writes normalized snapshot rows back to PostgreSQL, and exposes operational metrics
-for Prometheus.
+native and configured ERC-20 balances plus Solana SOL and tracked SPL balances
+through RPC, includes manual wallet balances, writes normalized snapshot rows back
+to PostgreSQL, and exposes operational metrics for Prometheus.
 
 Prometheus is used only for telemetry. Portfolio data is business data and must be
 read from PostgreSQL by `py_wallet`.
@@ -22,7 +22,7 @@ SHA image to that release name and creates a GitHub Release.
 
 ```text
 py_wallet backend -> snapshot-service internal API
-snapshot-service  -> PostgreSQL + EVM RPC + price providers
+snapshot-service  -> PostgreSQL + EVM/Solana RPC + price providers
 Prometheus        -> /metrics
 ```
 
@@ -38,6 +38,7 @@ Prometheus        -> /metrics
 - Collects EVM native and USDC-family balances for `mainnet`, `base`, `arbitrum`,
   `bnb`, and `linea`.
 - Distinguishes native USDC, bridged `USDC.e`/`USDbC`, and Binance-Peg USDC.
+- Collects native SOL plus mainnet SPL USDC and USDT for `solana` wallets.
 - Validates RPC chain IDs at startup and supports comma-separated RPC failover with
   cooldown-based circuit breaking.
 - Processes manual wallets without RPC calls.
@@ -65,7 +66,7 @@ Requirements:
 
 - Python 3.12+
 - PostgreSQL database shared with `py_wallet`
-- RPC URLs for full EVM processing
+- RPC URLs for full EVM and Solana processing
 
 Install dependencies:
 
@@ -189,6 +190,7 @@ Debug and external providers:
 - `ARBITRUM_RPC_URL`
 - `BNB_RPC_URL`
 - `LINEA_RPC_URL`
+- `SOLANA_RPC_URL`
 - `CHAIN_TIMEOUT_SECONDS`
 - `ETHEREUM_TIMEOUT_SECONDS`
 - `RPC_COOLDOWN_SECONDS`
@@ -207,10 +209,19 @@ invented live value.
 
 Each `*_RPC_URL` accepts a comma-separated list ordered as primary, backup, and
 emergency endpoint. Failed endpoints are removed from rotation for
-`RPC_COOLDOWN_SECONDS`; startup checks verify that every endpoint reports the
-expected chain ID. HTTP 429 responses honor `Retry-After`, and the worker keeps
-provider cooldown state between jobs. Chain IDs and token decimals are cached to
-avoid repeating invariant RPC calls for every wallet.
+`RPC_COOLDOWN_SECONDS`; EVM startup checks verify that every configured EVM
+endpoint reports the expected chain ID. HTTP 429 responses honor `Retry-After`,
+and the worker keeps provider cooldown state between jobs. EVM chain IDs and token
+decimals are cached to avoid repeating invariant RPC calls for every wallet.
+
+`SOLANA_RPC_URL` is intentionally empty by default and must point to Solana
+mainnet-beta. Solana wallets are collected independently of
+`SNAPSHOT_ENABLED_CHAINS`. The collector validates base58 public keys, requests
+finalized native SOL and JSON-parsed SPL token accounts, aggregates multiple token
+accounts for the official mainnet USDC and USDT mints, and ignores untracked SPL
+tokens. An empty URL or an exhausted provider rotation produces a bounded failed
+`solana` chain snapshot, preserving the existing partial-success behavior for the
+rest of the job.
 
 For local mainnet-only debugging, set:
 
@@ -305,7 +316,7 @@ The worker loop:
 2. Claims the oldest pending job.
 3. Marks it `running`.
 4. Loads active wallets for the job scope.
-5. Collects balances for manual wallets or supported EVM chains.
+5. Collects balances for manual wallets, supported EVM chains, or Solana.
 6. Writes wallet, chain, and balance snapshots.
 7. Marks the job `success`, `partial_success`, or `failed`.
 

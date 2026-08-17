@@ -2,6 +2,7 @@ import pytest
 from pydantic import ValidationError
 
 from app.config import Settings
+from app.services.chain_config import get_solana_rpc_urls
 
 
 def make_settings(**overrides) -> Settings:
@@ -47,3 +48,15 @@ def test_snapshot_job_lease_has_safe_bounds():
 
     with pytest.raises(ValidationError):
         make_settings(snapshot_job_lease_seconds=59)
+
+
+def test_solana_rpc_url_supports_ordered_failover_endpoints():
+    settings = make_settings(
+        solana_rpc_url=" https://primary.test,https://backup.test, https://primary.test "
+    )
+
+    assert get_solana_rpc_urls(settings) == (
+        "https://primary.test",
+        "https://backup.test",
+        "https://primary.test",
+    )

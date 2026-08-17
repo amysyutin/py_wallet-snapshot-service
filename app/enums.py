@@ -40,12 +40,14 @@ class ChainStatus(StrEnum):
 
 class WalletType(StrEnum):
     EVM = "evm"
+    SOLANA = "solana"
     MANUAL = "manual"
 
 
 class AssetType(StrEnum):
     NATIVE = "native"
     ERC20 = "erc20"
+    SPL = "spl"
     MANUAL = "manual"
 
 

@@ -24,10 +24,11 @@ from app.metrics import (
 )
 from app.models.external import Wallet
 from app.models.snapshots import BalanceSnapshot, ChainSnapshot, SnapshotRun, WalletSnapshot
-from app.services.chain_config import get_chain_configs, get_enabled_chains
+from app.services.chain_config import get_chain_configs, get_enabled_chains, get_solana_rpc_urls
 from app.services.evm_collector import ChainCollectionResult, EvmCollector
 from app.services.manual_collector import ManualCollector
 from app.services.price_service import PriceService
+from app.services.solana_collector import SOLANA_CHAIN, SolanaCollector
 from app.services.wallet_loader import WalletLoader
 from app.worker.claim import renew_job_lease
 
@@ -39,16 +40,27 @@ class SnapshotProcessor:
         self,
         db: Session,
         evm_collector: EvmCollector | None = None,
+        solana_collector: SolanaCollector | None = None,
         manual_collector: ManualCollector | None = None,
         worker_id: str | None = None,
         lease_seconds: int | None = None,
     ):
         self.db = db
         settings = get_settings()
-        price_service = getattr(evm_collector, "price_service", None) or PriceService(settings)
+        price_service = (
+            getattr(evm_collector, "price_service", None)
+            or getattr(solana_collector, "price_service", None)
+            or PriceService(settings)
+        )
         self.evm_collector = evm_collector or EvmCollector(
             get_chain_configs(settings),
             price_service,
+            cooldown_seconds=settings.rpc_cooldown_seconds,
+        )
+        self.solana_collector = solana_collector or SolanaCollector(
+            get_solana_rpc_urls(settings),
+            price_service,
+            timeout_seconds=settings.chain_timeout_seconds,
             cooldown_seconds=settings.rpc_cooldown_seconds,
         )
         self.manual_collector = manual_collector or ManualCollector(db, price_service)
@@ -160,7 +172,11 @@ class SnapshotProcessor:
             results = [self._collect_manual_wallet(job, wallet)]
         elif wallet.wallet_type == WalletType.EVM.value:
             if job.scope_type == ScopeType.FAILED_CHAINS.value and job.parent_run_id is not None:
-                carried_chains, retry_chains = self._retry_plan(job, wallet)
+                carried_chains, retry_chains = self._retry_plan(
+                    job,
+                    wallet,
+                    self.enabled_chains,
+                )
                 for chain in carried_chains:
                     self._copy_chain_snapshot(wallet_snapshot, chain)
                 results = [self._collect_evm_chain(job, wallet, chain) for chain in retry_chains]
@@ -168,6 +184,22 @@ class SnapshotProcessor:
                 results = [
                     self._collect_evm_chain(job, wallet, chain) for chain in self.enabled_chains
                 ]
+        elif wallet.wallet_type == WalletType.SOLANA.value:
+            if job.scope_type == ScopeType.FAILED_CHAINS.value and job.parent_run_id is not None:
+                carried_chains, retry_chains = self._retry_plan(
+                    job,
+                    wallet,
+                    (SOLANA_CHAIN,),
+                )
+                for chain in carried_chains:
+                    self._copy_chain_snapshot(wallet_snapshot, chain)
+                results = (
+                    [self._collect_solana_wallet(job, wallet)]
+                    if SOLANA_CHAIN in retry_chains
+                    else []
+                )
+            else:
+                results = [self._collect_solana_wallet(job, wallet)]
         else:
             results = [
                 ChainCollectionResult(
@@ -214,6 +246,7 @@ class SnapshotProcessor:
         self,
         job: SnapshotRun,
         wallet: Wallet,
+        allowed_chains: tuple[str, ...],
     ) -> tuple[list[ChainSnapshot], tuple[str, ...]]:
         parent_chains = list(
             self.db.scalars(
@@ -230,7 +263,7 @@ class SnapshotProcessor:
         retry_chains = tuple(
             chain.chain
             for chain in parent_chains
-            if chain.status == ChainStatus.FAILED.value and chain.chain in self.enabled_chains
+            if chain.status == ChainStatus.FAILED.value and chain.chain in allowed_chains
         )
         carried_chains = [chain for chain in parent_chains if chain.chain not in retry_chains]
         return carried_chains, retry_chains
@@ -301,6 +334,39 @@ class SnapshotProcessor:
         )
         started = perf_counter()
         result = self.evm_collector.collect_chain(wallet.address or "", chain)
+        chain_duration_seconds.labels(result.chain, result.status).observe(perf_counter() - started)
+        if result.rpc_latency_ms is not None:
+            rpc_latency_seconds.labels(result.chain).observe(result.rpc_latency_ms / 1000)
+        logger.info(
+            "chain_collection_succeeded"
+            if result.status == ChainStatus.SUCCESS.value
+            else "chain_collection_failed",
+            extra=self._log_extra(
+                job,
+                wallet_id=wallet.id,
+                chain=result.chain,
+                status=result.status,
+                error_type=result.error_type,
+            ),
+        )
+        return result
+
+    def _collect_solana_wallet(
+        self,
+        job: SnapshotRun,
+        wallet: Wallet,
+    ) -> ChainCollectionResult:
+        logger.info(
+            "chain_collection_started",
+            extra=self._log_extra(
+                job,
+                wallet_id=wallet.id,
+                chain=SOLANA_CHAIN,
+                status=WalletSnapshotStatus.RUNNING.value,
+            ),
+        )
+        started = perf_counter()
+        result = self.solana_collector.collect_wallet(wallet.address or "")
         chain_duration_seconds.labels(result.chain, result.status).observe(perf_counter() - started)
         if result.rpc_latency_ms is not None:
             rpc_latency_seconds.labels(result.chain).observe(result.rpc_latency_ms / 1000)

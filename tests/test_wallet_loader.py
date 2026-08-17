@@ -97,3 +97,50 @@ def test_wallet_scope_keeps_explicit_duplicate_record(db_session):
     )
 
     assert [wallet.id for wallet in wallets] == [2]
+
+
+def test_all_scope_deduplicates_exact_solana_addresses_but_preserves_case(db_session):
+    address = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    case_variant = "ePjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+    db_session.add(User(id=1, email="solana-dedupe@example.test"))
+    db_session.add_all(
+        [
+            Wallet(
+                id=1,
+                user_id=1,
+                group_id=10,
+                label="Canonical",
+                address=address,
+                chain_type="solana",
+                wallet_type="solana",
+                is_active=True,
+            ),
+            Wallet(
+                id=2,
+                user_id=1,
+                group_id=10,
+                label="Duplicate",
+                address=address,
+                chain_type="solana",
+                wallet_type="solana",
+                is_active=True,
+            ),
+            Wallet(
+                id=3,
+                user_id=1,
+                group_id=10,
+                label="Different base58 address",
+                address=case_variant,
+                chain_type="solana",
+                wallet_type="solana",
+                is_active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    wallets = WalletLoader(db_session).load_for_job(
+        _job(db_session, scope_type=ScopeType.ALL.value)
+    )
+
+    assert [wallet.id for wallet in wallets] == [1, 3]

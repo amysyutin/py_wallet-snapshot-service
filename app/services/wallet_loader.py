@@ -35,26 +35,30 @@ class WalletLoader:
             ScopeType.GROUP.value,
             ScopeType.FAILED_CHAINS.value,
         ):
-            return self._deduplicate_evm_addresses(wallets)
+            return self._deduplicate_onchain_addresses(wallets)
         return wallets
 
     @staticmethod
-    def _deduplicate_evm_addresses(wallets: list[Wallet]) -> list[Wallet]:
-        """Keep the oldest active wallet for each case-insensitive EVM address.
+    def _deduplicate_onchain_addresses(wallets: list[Wallet]) -> list[Wallet]:
+        """Keep the oldest active wallet for each normalized on-chain address.
 
         Scheduled and group-wide jobs must not scan the same on-chain address
         more than once. Explicit wallet jobs are intentionally left untouched
         so an existing duplicate record can still be refreshed and inspected.
+        EVM addresses are case-insensitive here; Solana base58 addresses are not.
         """
-        seen_addresses: set[str] = set()
+        seen_addresses: set[tuple[str, str]] = set()
         result: list[Wallet] = []
         for wallet in wallets:
-            if wallet.wallet_type != "evm" or not wallet.address:
+            if wallet.wallet_type not in {"evm", "solana"} or not wallet.address:
                 result.append(wallet)
                 continue
-            normalized = wallet.address.strip().lower()
-            if normalized in seen_addresses:
+            normalized = wallet.address.strip()
+            if wallet.wallet_type == "evm":
+                normalized = normalized.lower()
+            address_key = (wallet.wallet_type, normalized)
+            if address_key in seen_addresses:
                 continue
-            seen_addresses.add(normalized)
+            seen_addresses.add(address_key)
             result.append(wallet)
         return result
