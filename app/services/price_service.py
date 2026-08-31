@@ -46,6 +46,11 @@ class PriceService:
             self._cache[normalized] = (now, price, "coingecko")
             return price, "coingecko"
 
+        price = self._fetch_fiat_usd_rate(normalized)
+        if price is not None:
+            self._cache[normalized] = (now, price, "frankfurter")
+            return price, "frankfurter"
+
         fallback = (
             None
             if self.settings.environment in SECURE_ENVIRONMENTS
@@ -69,5 +74,21 @@ class PriceService:
                 response.raise_for_status()
                 value = response.json().get(coin_id, {}).get("usd")
                 return Decimal(str(value)) if value is not None else None
+        except Exception:
+            return None
+
+    def _fetch_fiat_usd_rate(self, symbol: str) -> Decimal | None:
+        """Resolve an ISO 4217 ticker to the value of one unit in USD."""
+        if len(symbol) != 3 or not symbol.isalpha():
+            return None
+        if symbol == "USD":
+            return Decimal("1")
+        try:
+            with httpx.Client(timeout=3) as client:
+                response = client.get(f"{self.settings.frankfurter_base_url}/rate/{symbol}/USD")
+                response.raise_for_status()
+                value = response.json().get("rate")
+                price = Decimal(str(value)) if value is not None else None
+                return price if price is not None and price > 0 else None
         except Exception:
             return None

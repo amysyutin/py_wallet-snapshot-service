@@ -42,7 +42,8 @@ Prometheus        -> /metrics
 - Validates RPC chain IDs at startup and supports comma-separated RPC failover with
   cooldown-based circuit breaking.
 - Processes manual wallets without RPC calls.
-- Uses CoinGecko for prices with local fallback prices for common symbols.
+- Resolves blank manual prices by ticker: crypto through CoinGecko and ISO 4217
+  fiat through Frankfurter exchange rates; explicit `price_usd` remains an override.
 - Supports partial success at job, wallet, and chain level.
 
 ## Project Layout
@@ -196,6 +197,7 @@ Debug and external providers:
 - `RPC_COOLDOWN_SECONDS`
 - `RPC_STARTUP_CHECK_ENABLED`
 - `COINGECKO_BASE_URL`
+- `FRANKFURTER_BASE_URL`
 - `PRICE_CACHE_TTL_SECONDS`
 
 See `.env.example` for defaults.
@@ -206,6 +208,13 @@ debugging usable. Staging and production never use those static values; a
 missing market price is persisted as unavailable so the public portfolio
 health contract can mark the total incomplete instead of presenting an
 invented live value.
+
+For a manual balance, a non-null `price_usd` is an explicit user override. When
+it is null, the collector first resolves supported crypto tickers through
+CoinGecko, then treats three-letter alphabetic symbols as ISO 4217 currency
+codes and requests the latest `<TICKER>/USD` rate from Frankfurter. Successful
+fiat rates are persisted with `price_source=frankfurter`; an unsupported ticker
+or unavailable provider remains unpriced and makes price coverage incomplete.
 
 Each `*_RPC_URL` accepts a comma-separated list ordered as primary, backup, and
 emergency endpoint. Failed endpoints are removed from rotation for

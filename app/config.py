@@ -53,6 +53,7 @@ class Settings(BaseSettings):
     solana_rpc_url: str = ""
 
     coingecko_base_url: str = "https://api.coingecko.com/api/v3"
+    frankfurter_base_url: str = "https://api.frankfurter.dev/v2"
     price_cache_ttl_seconds: int = 60
 
     max_retry_attempts: int = 3
