@@ -66,6 +66,7 @@ class PriceService:
         platform: str,
         contract_address: str,
     ) -> tuple[Decimal | None, str | None]:
+        """Return a configured EVM token price scoped by platform and contract."""
         normalized_platform = platform.strip().lower()
         normalized_address = contract_address.strip().lower()
         if not normalized_platform or not self._is_evm_contract(normalized_address):
