@@ -17,6 +17,7 @@ class ChainConfig:
     expected_chain_id: int
     rpc_urls: tuple[str, ...]
     timeout_seconds: int
+    coingecko_platform: str
     tokens: tuple[TokenConfig, ...] = ()
 
     @property
@@ -27,7 +28,19 @@ class ChainConfig:
 SUPPORTED_CHAINS = ("mainnet", "base", "arbitrum", "bnb", "linea")
 
 TOKENS_BY_CHAIN: dict[str, tuple[TokenConfig, ...]] = {
-    "mainnet": (TokenConfig("USDC", "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),),
+    "mainnet": (
+        TokenConfig("USDC", "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48"),
+        TokenConfig(
+            "WETH",
+            "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2",
+            "ETH",
+        ),
+        TokenConfig(
+            "WBTC",
+            "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599",
+            "BTC",
+        ),
+    ),
     "base": (
         TokenConfig("USDC", "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"),
         TokenConfig("USDbC", "0xd9aAEc86B65D86f6A7B5B1b0c42FFA531710b6CA"),
@@ -71,6 +84,7 @@ def get_chain_configs(settings: Settings) -> dict[str, ChainConfig]:
             1,
             _rpc_urls(settings.ethereum_rpc_url),
             settings.ethereum_timeout_seconds,
+            "ethereum",
             TOKENS_BY_CHAIN["mainnet"],
         ),
         "base": ChainConfig(
@@ -79,6 +93,7 @@ def get_chain_configs(settings: Settings) -> dict[str, ChainConfig]:
             8453,
             _rpc_urls(settings.base_rpc_url),
             settings.chain_timeout_seconds,
+            "base",
             TOKENS_BY_CHAIN["base"],
         ),
         "arbitrum": ChainConfig(
@@ -87,6 +102,7 @@ def get_chain_configs(settings: Settings) -> dict[str, ChainConfig]:
             42161,
             _rpc_urls(settings.arbitrum_rpc_url),
             settings.chain_timeout_seconds,
+            "arbitrum-one",
             TOKENS_BY_CHAIN["arbitrum"],
         ),
         "bnb": ChainConfig(
@@ -95,6 +111,7 @@ def get_chain_configs(settings: Settings) -> dict[str, ChainConfig]:
             56,
             _rpc_urls(settings.bnb_rpc_url),
             settings.chain_timeout_seconds,
+            "binance-smart-chain",
             TOKENS_BY_CHAIN["bnb"],
         ),
         "linea": ChainConfig(
@@ -103,6 +120,7 @@ def get_chain_configs(settings: Settings) -> dict[str, ChainConfig]:
             59144,
             _rpc_urls(settings.linea_rpc_url),
             settings.chain_timeout_seconds,
+            "linea",
             TOKENS_BY_CHAIN["linea"],
         ),
     }

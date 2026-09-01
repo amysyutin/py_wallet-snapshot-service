@@ -35,8 +35,9 @@ Prometheus        -> /metrics
 - Uses renewable worker leases and fails abandoned jobs so scheduling cannot remain blocked.
 - Reads `py_wallet`-owned tables: `users`, `wallet_groups`, `wallets`, `assets`, `manual_balances`.
 - Owns snapshot tables: `snapshot_runs`, `wallet_snapshots`, `chain_snapshots`, `snapshot_balance_snapshots`.
-- Collects EVM native and USDC-family balances for `mainnet`, `base`, `arbitrum`,
-  `bnb`, and `linea`.
+- Collects EVM native and configured ERC-20 balances for `mainnet`, `base`,
+  `arbitrum`, `bnb`, and `linea`; the mainnet allowlist includes USDC, WETH,
+  and WBTC.
 - Distinguishes native USDC, bridged `USDC.e`/`USDbC`, and Binance-Peg USDC.
 - Collects native SOL plus mainnet SPL USDC and USDT for `solana` wallets.
 - Validates RPC chain IDs at startup and supports comma-separated RPC failover with
@@ -44,6 +45,8 @@ Prometheus        -> /metrics
 - Processes manual wallets without RPC calls.
 - Resolves blank manual prices by ticker: crypto through CoinGecko and ISO 4217
   fiat through Frankfurter exchange rates; explicit `price_usd` remains an override.
+- Uses CoinGecko coin IDs for native assets and contract-address pricing for
+  configured ERC-20 tokens, with local fallback prices for common symbols.
 - Supports partial success at job, wallet, and chain level.
 
 ## Project Layout
@@ -215,6 +218,15 @@ CoinGecko, then treats three-letter alphabetic symbols as ISO 4217 currency
 codes and requests the latest `<TICKER>/USD` rate from Frankfurter. Successful
 fiat rates are persisted with `price_source=frankfurter`; an unsupported ticker
 or unavailable provider remains unpriced and makes price coverage incomplete.
+
+Configured ERC-20 prices are requested from CoinGecko's
+`/simple/token_price/<asset-platform>` endpoint by lower-cased contract address.
+The cache key includes both platform and address, so the same address on two
+networks cannot share a price accidentally. If contract lookup is unavailable,
+the bounded allowlist may fall back to its canonical price symbol (for example,
+WETH to ETH and WBTC to BTC); secure environments still never use `static_dev`.
+Unsupported or unpriced tokens remain visible with zero USD value so price
+quality is incomplete rather than invented.
 
 Each `*_RPC_URL` accepts a comma-separated list ordered as primary, backup, and
 emergency endpoint. Failed endpoints are removed from rotation for

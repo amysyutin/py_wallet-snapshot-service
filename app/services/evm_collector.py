@@ -184,8 +184,7 @@ class EvmCollector:
             )
         ]
         balances.extend(
-            self._collect_token(client, rpc_url, address, token, config.name)
-            for token in config.tokens
+            self._collect_token(client, rpc_url, address, token, config) for token in config.tokens
         )
 
         return ChainCollectionResult(
@@ -206,9 +205,9 @@ class EvmCollector:
         rpc_url: str,
         wallet_address: str,
         token: TokenConfig,
-        chain: str,
+        config: ChainConfig,
     ) -> AssetBalance:
-        decimals_key = (chain, token.address.lower())
+        decimals_key = (config.name, token.address.lower())
         decimals = self._token_decimals.get(decimals_key)
         if decimals is None:
             decimals = self._rpc_int(
@@ -229,7 +228,12 @@ class EvmCollector:
             ],
         )
         amount = Decimal(raw_amount) / (Decimal(10) ** decimals)
-        price, source = self.price_service.get_usd_price(token.price_symbol)
+        price, source = self.price_service.get_token_usd_price(
+            config.coingecko_platform,
+            token.address,
+        )
+        if price is None:
+            price, source = self.price_service.get_usd_price(token.price_symbol)
         value = amount * price if price is not None else Decimal("0")
         return AssetBalance(
             symbol=token.symbol,

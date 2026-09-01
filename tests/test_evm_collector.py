@@ -5,7 +5,7 @@ from unittest.mock import patch
 import httpx
 
 from app.enums import ErrorType
-from app.services.chain_config import ChainConfig, TokenConfig
+from app.services.chain_config import TOKENS_BY_CHAIN, ChainConfig, TokenConfig
 from app.services.evm_collector import EvmCollector
 
 REAL_HTTPX_CLIENT = httpx.Client
@@ -16,6 +16,9 @@ class StaticPriceService:
         prices = {"ETH": Decimal("3000"), "USDC": Decimal("1")}
         return prices[symbol], "test"
 
+    def get_token_usd_price(self, _platform: str, _contract_address: str):
+        return None, None
+
 
 def _config(*rpc_urls: str, expected_chain_id: int = 8453) -> ChainConfig:
     return ChainConfig(
@@ -24,6 +27,7 @@ def _config(*rpc_urls: str, expected_chain_id: int = 8453) -> ChainConfig:
         expected_chain_id=expected_chain_id,
         rpc_urls=rpc_urls,
         timeout_seconds=2,
+        coingecko_platform="base",
         tokens=(
             TokenConfig(
                 "USDC",
@@ -67,6 +71,70 @@ def test_collects_native_and_erc20_balances():
     assert [balance.symbol for balance in result.balances] == ["ETH", "USDC"]
     assert result.balances[1].amount == Decimal("2.5")
     assert result.balances[1].asset_type == "erc20"
+
+
+def test_prices_non_stable_erc20_by_platform_and_contract():
+    observed: list[tuple[str, str]] = []
+    wbtc_address = "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"
+
+    class ContractPriceService:
+        @staticmethod
+        def get_usd_price(symbol: str):
+            assert symbol == "ETH"
+            return Decimal("3000"), "coingecko"
+
+        @staticmethod
+        def get_token_usd_price(platform: str, contract_address: str):
+            observed.append((platform, contract_address))
+            return Decimal("70000"), "coingecko"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        if payload["method"] == "eth_chainId":
+            result = hex(1)
+        elif payload["method"] == "eth_getBalance":
+            result = "0x0"
+        elif payload["params"][0]["data"] == "0x313ce567":
+            result = hex(8)
+        else:
+            result = hex(150_000_000)
+        return httpx.Response(200, json={"result": result})
+
+    config = ChainConfig(
+        name="mainnet",
+        native_symbol="ETH",
+        expected_chain_id=1,
+        rpc_urls=("https://mainnet.test",),
+        timeout_seconds=2,
+        coingecko_platform="ethereum",
+        tokens=(TokenConfig("WBTC", wbtc_address, "BTC"),),
+    )
+    transport = httpx.MockTransport(handler)
+    collector = EvmCollector({"mainnet": config}, ContractPriceService())
+    with patch(
+        "app.services.evm_collector.httpx.Client",
+        side_effect=_client_factory(transport),
+    ):
+        result = collector.collect_chain(
+            "0x0000000000000000000000000000000000000001",
+            "mainnet",
+        )
+
+    assert result.status == "success"
+    assert result.total_usd == Decimal("105000")
+    assert result.balances[1].amount == Decimal("1.5")
+    assert result.balances[1].price_usd == Decimal("70000")
+    assert result.balances[1].price_source == "coingecko"
+    assert observed == [("ethereum", wbtc_address)]
+
+
+def test_mainnet_allowlist_includes_non_stable_erc20():
+    token_by_symbol = {token.symbol: token for token in TOKENS_BY_CHAIN["mainnet"]}
+
+    assert token_by_symbol["WETH"].price_symbol == "ETH"
+    assert token_by_symbol["WBTC"].price_symbol == "BTC"
+    assert token_by_symbol["WETH"].address.lower() == ("0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2")
+    assert token_by_symbol["WBTC"].address.lower() == ("0x2260fac5e5542a773aa44fbcfedf7c193bc2c599")
 
 
 def test_fails_over_and_temporarily_skips_rate_limited_rpc():

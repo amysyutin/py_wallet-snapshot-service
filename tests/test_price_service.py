@@ -122,3 +122,105 @@ def test_unknown_ticker_remains_unpriced_in_production(
     monkeypatch.setattr(service, "_fetch_fiat_usd_rate", lambda _symbol: None)
 
     assert service.get_usd_price("UNKNOWN") == (None, None)
+
+
+def test_token_price_uses_contract_lookup_and_cache(monkeypatch: pytest.MonkeyPatch):
+    service = PriceService(_settings("production"))
+    observed = []
+
+    def fetch(platform: str, contract_address: str):
+        observed.append((platform, contract_address))
+        return Decimal("78619")
+
+    monkeypatch.setattr(service, "_fetch_coingecko_token_price", fetch)
+    address = "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599"
+
+    assert service.get_token_usd_price("Ethereum", address) == (
+        Decimal("78619"),
+        "coingecko",
+    )
+    assert service.get_token_usd_price("ethereum", address.lower()) == (
+        Decimal("78619"),
+        "coingecko",
+    )
+    assert observed == [("ethereum", address.lower())]
+
+
+def test_token_price_cache_isolated_by_platform(monkeypatch: pytest.MonkeyPatch):
+    service = PriceService(_settings("production"))
+    observed = []
+    address = "0x0000000000000000000000000000000000000001"
+
+    def fetch(platform: str, contract_address: str):
+        observed.append((platform, contract_address))
+        return Decimal("2")
+
+    monkeypatch.setattr(service, "_fetch_coingecko_token_price", fetch)
+
+    assert service.get_token_usd_price("ethereum", address) == (
+        Decimal("2"),
+        "coingecko",
+    )
+    assert service.get_token_usd_price("base", address) == (
+        Decimal("2"),
+        "coingecko",
+    )
+    assert observed == [("ethereum", address), ("base", address)]
+
+
+def test_token_price_response_is_parsed(monkeypatch: pytest.MonkeyPatch):
+    service = PriceService(_settings("production"))
+    observed = []
+    address = "0x2260fac5e5542a773aa44fbcfedf7c193bc2c599"
+
+    class Response:
+        @staticmethod
+        def raise_for_status():
+            return None
+
+        @staticmethod
+        def json():
+            return {address: {"usd": 78619}}
+
+    class Client:
+        def __init__(self, *, timeout: int):
+            assert timeout == 3
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        @staticmethod
+        def get(url: str, *, params: dict[str, str]):
+            observed.append((url, params))
+            return Response()
+
+    monkeypatch.setattr("app.services.price_service.httpx.Client", Client)
+
+    assert service._fetch_coingecko_token_price("ethereum", address) == Decimal("78619")
+    assert observed == [
+        (
+            "https://api.coingecko.com/api/v3/simple/token_price/ethereum",
+            {"contract_addresses": address, "vs_currencies": "usd"},
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    "address",
+    ["", "0x123", "not-an-address", "0x" + "g" * 40],
+)
+def test_token_price_rejects_invalid_contract(
+    monkeypatch: pytest.MonkeyPatch,
+    address: str,
+):
+    service = PriceService(_settings("production"))
+    monkeypatch.setattr(
+        service,
+        "_fetch_coingecko_token_price",
+        lambda *_args: pytest.fail("invalid contracts must not call CoinGecko"),
+    )
+
+    assert service.get_token_usd_price("ethereum", address) == (None, None)
