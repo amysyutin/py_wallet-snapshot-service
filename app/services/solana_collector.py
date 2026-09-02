@@ -159,6 +159,7 @@ class SolanaCollector:
                 price_usd=native_price,
                 value_usd=native_value,
                 price_source=native_source,
+                decimals=9,
             )
         ]
         for token in self.tokens:
@@ -174,6 +175,7 @@ class SolanaCollector:
                     price_usd=price,
                     value_usd=value,
                     price_source=source,
+                    decimals=token.decimals,
                 )
             )
 

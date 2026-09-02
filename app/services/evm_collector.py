@@ -21,6 +21,7 @@ class AssetBalance:
     price_usd: Decimal | None
     value_usd: Decimal
     price_source: str | None
+    decimals: int = 18
 
 
 @dataclass
@@ -243,6 +244,7 @@ class EvmCollector:
             price_usd=price,
             value_usd=value,
             price_source=source,
+            decimals=decimals,
         )
 
     def _verify_chain_id(

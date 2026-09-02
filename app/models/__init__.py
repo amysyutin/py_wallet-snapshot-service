@@ -1,4 +1,4 @@
-from app.models.external import Asset, ManualBalance, User, Wallet, WalletGroup
+from app.models.external import Asset, ManualBalance, PriceHistory, User, Wallet, WalletGroup
 from app.models.snapshots import BalanceSnapshot, ChainSnapshot, SnapshotRun, WalletSnapshot
 
 __all__ = [
@@ -6,6 +6,7 @@ __all__ = [
     "BalanceSnapshot",
     "ChainSnapshot",
     "ManualBalance",
+    "PriceHistory",
     "SnapshotRun",
     "User",
     "Wallet",
