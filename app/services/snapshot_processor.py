@@ -27,6 +27,7 @@ from app.models.snapshots import BalanceSnapshot, ChainSnapshot, SnapshotRun, Wa
 from app.services.chain_config import get_chain_configs, get_enabled_chains, get_solana_rpc_urls
 from app.services.evm_collector import ChainCollectionResult, EvmCollector
 from app.services.manual_collector import ManualCollector
+from app.services.price_history import PriceHistoryRecorder
 from app.services.price_service import PriceService
 from app.services.solana_collector import SOLANA_CHAIN, SolanaCollector
 from app.services.wallet_loader import WalletLoader
@@ -64,6 +65,7 @@ class SnapshotProcessor:
             cooldown_seconds=settings.rpc_cooldown_seconds,
         )
         self.manual_collector = manual_collector or ManualCollector(db, price_service)
+        self.price_history = PriceHistoryRecorder(db)
         self.wallet_loader = WalletLoader(db)
         self.enabled_chains = get_enabled_chains(settings)
         self.worker_id = worker_id
@@ -71,6 +73,7 @@ class SnapshotProcessor:
 
     def process(self, job: SnapshotRun) -> str:
         started = perf_counter()
+        self.price_history.begin_job()
         logger.info(
             "snapshot_job_started",
             extra=self._log_extra(job, status=JobStatus.RUNNING.value),
@@ -417,6 +420,11 @@ class SnapshotProcessor:
                     value_usd=balance.value_usd,
                     price_source=balance.price_source,
                 )
+            )
+            self.price_history.record(
+                chain=result.chain,
+                balance=balance,
+                observed_at=now,
             )
             balance_snapshots_written_total.inc()
 
