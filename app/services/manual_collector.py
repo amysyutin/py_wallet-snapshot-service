@@ -17,7 +17,7 @@ class ManualCollector:
     def collect_wallet(self, wallet_id: int) -> ChainCollectionResult:
         rows = list(
             self.db.execute(
-                select(ManualBalance, Asset.symbol)
+                select(ManualBalance, Asset.symbol, Asset.decimals)
                 .join(Asset, Asset.id == ManualBalance.asset_id)
                 .where(ManualBalance.wallet_id == wallet_id)
                 .order_by(Asset.symbol)
@@ -27,9 +27,9 @@ class ManualCollector:
         total = Decimal("0")
         missing_prices: list[str] = []
 
-        for row, symbol in rows:
+        for row, symbol, decimals in rows:
             price = row.price_usd
-            source = "manual"
+            source: str | None = "manual"
             if price is None:
                 price, source = self.price_service.get_usd_price(symbol)
             if price is None:
@@ -48,6 +48,7 @@ class ManualCollector:
                     price_usd=price,
                     value_usd=value,
                     price_source=source,
+                    decimals=decimals,
                 )
             )
 

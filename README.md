@@ -4,7 +4,8 @@ FastAPI microservice that creates and processes wallet snapshot jobs for `py_wal
 It reads active users and wallets from the shared PostgreSQL database, collects EVM
 native and configured ERC-20 balances plus Solana SOL and tracked SPL balances
 through RPC, includes manual wallet balances, writes normalized snapshot rows back
-to PostgreSQL, and exposes operational metrics for Prometheus.
+to PostgreSQL, records provider-backed asset prices in the shared price history,
+and exposes operational metrics for Prometheus.
 
 Prometheus is used only for telemetry. Portfolio data is business data and must be
 read from PostgreSQL by `py_wallet`.
@@ -47,6 +48,9 @@ Prometheus        -> /metrics
   fiat through Frankfurter exchange rates; explicit `price_usd` remains an override.
 - Uses CoinGecko coin IDs for native assets and contract-address pricing for
   configured ERC-20 tokens, with local fallback prices for common symbols.
+- Records positive CoinGecko and Frankfurter observations for owned assets in
+  `prices_history`, at most once per asset in each snapshot job. Manual overrides
+  and development fallback prices are deliberately excluded.
 - Supports partial success at job, wallet, and chain level.
 
 ## Project Layout
@@ -227,6 +231,13 @@ the bounded allowlist may fall back to its canonical price symbol (for example,
 WETH to ETH and WBTC to BTC); secure environments still never use `static_dev`.
 Unsupported or unpriced tokens remain visible with zero USD value so price
 quality is incomplete rather than invented.
+
+Each snapshot job records at most one `prices_history` row per owned asset when
+the observed price came from CoinGecko or Frankfurter. Asset identity uses chain
+plus contract address for tokens, and chain plus symbol for native and manual
+assets. Manual overrides and `static_dev` fallback prices are excluded so a
+user-specific or synthetic value cannot become shared market history. A failed
+history write is logged and isolated from the core snapshot transaction.
 
 Each `*_RPC_URL` accepts a comma-separated list ordered as primary, backup, and
 emergency endpoint. Failed endpoints are removed from rotation for
@@ -438,6 +449,8 @@ processing.
 ## Current Limits
 
 - Exchange wallets are not implemented yet.
+- Complete EVM transaction ingestion is not implemented yet; standard JSON-RPC
+  does not expose a complete address-level ledger.
 - User-defined chains and token contracts are not implemented yet.
 - Web, worker, and scheduler are not split into separate runtime processes yet.
 - Kubernetes manifests and dashboards are expected to live in infrastructure code.

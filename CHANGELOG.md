@@ -4,6 +4,9 @@
 
 ### Added
 
+- Persist one provider-backed price observation per owned asset and snapshot job
+  to the shared `prices_history` table without allowing auxiliary history writes
+  to fail the snapshot.
 - Resolve blank manual-asset prices from crypto tickers through CoinGecko and
   ISO 4217 fiat tickers through Frankfurter exchange rates.
 - Price configured ERC-20 balances by CoinGecko asset platform and contract,
