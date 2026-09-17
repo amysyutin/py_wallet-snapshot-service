@@ -13,3 +13,8 @@
   starting with mainnet WETH and WBTC while retaining symbol fallback.
 - Collect native SOL and official mainnet SPL USDC/USDT balances for Solana wallets,
   with bounded RPC failover, retry support, and normalized snapshot persistence.
+
+### Changed
+
+- Add direct regression coverage for enabled-chain filtering, RPC endpoint parsing,
+  timeout selection, and provider metadata in snapshot chain configuration.

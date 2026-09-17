@@ -2,7 +2,12 @@ import pytest
 from pydantic import ValidationError
 
 from app.config import Settings
-from app.services.chain_config import get_solana_rpc_urls
+from app.services.chain_config import (
+    SUPPORTED_CHAINS,
+    get_chain_configs,
+    get_enabled_chains,
+    get_solana_rpc_urls,
+)
 
 
 def make_settings(**overrides) -> Settings:
@@ -60,3 +65,47 @@ def test_solana_rpc_url_supports_ordered_failover_endpoints():
         "https://backup.test",
         "https://primary.test",
     )
+
+
+def test_enabled_chains_filters_unknown_values_and_preserves_unique_order():
+    settings = make_settings(snapshot_enabled_chains=" base,unknown,mainnet,base, bnb, ")
+
+    assert get_enabled_chains(settings) == ("base", "mainnet", "bnb")
+
+
+def test_enabled_chains_falls_back_to_all_supported_chains():
+    settings = make_settings(snapshot_enabled_chains="unknown,also-unknown")
+
+    assert get_enabled_chains(settings) == SUPPORTED_CHAINS
+
+
+def test_chain_configs_apply_rpc_timeout_and_provider_metadata():
+    settings = make_settings(
+        chain_timeout_seconds=7,
+        ethereum_timeout_seconds=11,
+        ethereum_rpc_url=" https://mainnet-primary.test, ,https://mainnet-backup.test ",
+        base_rpc_url="https://base.test",
+        arbitrum_rpc_url="https://arbitrum.test",
+        bnb_rpc_url="https://bnb.test",
+        linea_rpc_url="",
+    )
+
+    configs = get_chain_configs(settings)
+
+    assert tuple(configs) == SUPPORTED_CHAINS
+    assert configs["mainnet"].rpc_urls == (
+        "https://mainnet-primary.test",
+        "https://mainnet-backup.test",
+    )
+    assert configs["mainnet"].rpc_url == "https://mainnet-primary.test"
+    assert configs["mainnet"].timeout_seconds == 11
+    assert configs["mainnet"].expected_chain_id == 1
+    assert configs["mainnet"].coingecko_platform == "ethereum"
+    assert configs["base"].rpc_urls == ("https://base.test",)
+    assert configs["base"].timeout_seconds == 7
+    assert configs["base"].expected_chain_id == 8453
+    assert configs["arbitrum"].coingecko_platform == "arbitrum-one"
+    assert configs["bnb"].native_symbol == "BNB"
+    assert configs["bnb"].coingecko_platform == "binance-smart-chain"
+    assert configs["linea"].rpc_urls == ()
+    assert configs["linea"].rpc_url == ""
