@@ -16,5 +16,7 @@
 
 ### Changed
 
+- Add direct regression coverage for missing-price and empty-wallet outcomes in
+  the manual snapshot collector.
 - Add direct regression coverage for enabled-chain filtering, RPC endpoint parsing,
   timeout selection, and provider metadata in snapshot chain configuration.
