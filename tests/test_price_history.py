@@ -1,6 +1,8 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
+from sqlalchemy.exc import SQLAlchemyError
+
 from app.enums import AssetType, ChainStatus, JobStatus, ScopeType, TriggerType
 from app.models.external import Asset, PriceHistory
 from app.models.snapshots import SnapshotRun
@@ -151,6 +153,54 @@ def test_skips_non_provider_or_unowned_prices(db_session):
 
     assert db_session.query(Asset).count() == 0
     assert db_session.query(PriceHistory).count() == 0
+
+
+def test_record_failure_is_non_fatal_and_retryable(
+    db_session,
+    monkeypatch,
+    caplog,
+):
+    recorder = PriceHistoryRecorder(db_session)
+    recorder.begin_job()
+    balance = _balance()
+    observed_at = datetime(2026, 9, 22, 7, 0, tzinfo=UTC)
+    find_or_create_asset = recorder._find_or_create_asset
+
+    def fail_to_find_or_create_asset(**_kwargs):
+        raise SQLAlchemyError("price history database failure")
+
+    monkeypatch.setattr(
+        recorder,
+        "_find_or_create_asset",
+        fail_to_find_or_create_asset,
+    )
+
+    with caplog.at_level("WARNING", logger="app.services.price_history"):
+        assert not recorder.record(
+            chain="MAINNET",
+            balance=balance,
+            observed_at=observed_at,
+        )
+
+    assert db_session.query(Asset).count() == 0
+    assert db_session.query(PriceHistory).count() == 0
+    warning = next(
+        record for record in caplog.records if record.message == "price_history_record_failed"
+    )
+    assert warning.chain == "mainnet"
+    assert warning.symbol == "WBTC"
+    assert warning.source == "coingecko"
+    assert warning.exc_info is not None
+
+    monkeypatch.setattr(recorder, "_find_or_create_asset", find_or_create_asset)
+
+    assert recorder.record(
+        chain="mainnet",
+        balance=balance,
+        observed_at=observed_at,
+    )
+    assert db_session.query(Asset).count() == 1
+    assert db_session.query(PriceHistory).count() == 1
 
 
 class ProviderPriceCollector:

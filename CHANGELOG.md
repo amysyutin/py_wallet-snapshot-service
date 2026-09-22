@@ -16,6 +16,8 @@
 
 ### Changed
 
+- Add direct regression coverage for non-fatal price-history write failures and
+  successful retry after the nested transaction rolls back.
 - Add direct regression coverage for missing-price and empty-wallet outcomes in
   the manual snapshot collector.
 - Add direct regression coverage for enabled-chain filtering, RPC endpoint parsing,
