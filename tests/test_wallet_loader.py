@@ -4,12 +4,18 @@ from app.models.snapshots import SnapshotRun
 from app.services.wallet_loader import WalletLoader
 
 
-def _job(db_session, *, scope_type: str, wallet_id: int | None = None):
+def _job(
+    db_session,
+    *,
+    scope_type: str,
+    wallet_id: int | None = None,
+    group_id: int | None = None,
+):
     job = SnapshotRun(
         user_id=1,
         trigger_type=TriggerType.MANUAL.value,
         scope_type=scope_type,
-        group_id=None,
+        group_id=group_id,
         wallet_id=wallet_id,
         parent_run_id=None,
         status=JobStatus.PENDING.value,
@@ -144,3 +150,89 @@ def test_all_scope_deduplicates_exact_solana_addresses_but_preserves_case(db_ses
     )
 
     assert [wallet.id for wallet in wallets] == [1, 3]
+
+
+def test_group_scope_filters_owner_group_and_active_wallets_before_deduplication(
+    db_session,
+):
+    db_session.add_all(
+        [
+            User(id=1, email="group-owner@example.test"),
+            User(id=2, email="group-other@example.test"),
+        ]
+    )
+    db_session.add_all(
+        [
+            Wallet(
+                id=1,
+                user_id=1,
+                group_id=10,
+                label="Canonical",
+                address="0x00000000000000000000000000000000000000Aa",
+                chain_type="mainnet",
+                wallet_type="evm",
+                is_active=True,
+            ),
+            Wallet(
+                id=2,
+                user_id=1,
+                group_id=10,
+                label="Duplicate",
+                address=" 0x00000000000000000000000000000000000000aa ",
+                chain_type="base",
+                wallet_type="evm",
+                is_active=True,
+            ),
+            Wallet(
+                id=3,
+                user_id=1,
+                group_id=20,
+                label="Other group",
+                address="0x0000000000000000000000000000000000000003",
+                chain_type="mainnet",
+                wallet_type="evm",
+                is_active=True,
+            ),
+            Wallet(
+                id=4,
+                user_id=1,
+                group_id=10,
+                label="Inactive",
+                address="0x0000000000000000000000000000000000000004",
+                chain_type="mainnet",
+                wallet_type="evm",
+                is_active=False,
+            ),
+            Wallet(
+                id=5,
+                user_id=2,
+                group_id=10,
+                label="Other user",
+                address="0x0000000000000000000000000000000000000005",
+                chain_type="mainnet",
+                wallet_type="evm",
+                is_active=True,
+            ),
+            Wallet(
+                id=6,
+                user_id=1,
+                group_id=10,
+                label="Manual",
+                address=None,
+                chain_type=None,
+                wallet_type="manual",
+                is_active=True,
+            ),
+        ]
+    )
+    db_session.commit()
+
+    wallets = WalletLoader(db_session).load_for_job(
+        _job(
+            db_session,
+            scope_type=ScopeType.GROUP.value,
+            group_id=10,
+        )
+    )
+
+    assert [wallet.id for wallet in wallets] == [1, 6]

@@ -16,6 +16,8 @@
 
 ### Changed
 
+- Add direct regression coverage for owner, group, active-state, and address
+  deduplication filters in group-scoped snapshot wallet loading.
 - Add direct regression coverage for non-fatal price-history write failures and
   successful retry after the nested transaction rolls back.
 - Add direct regression coverage for missing-price and empty-wallet outcomes in
